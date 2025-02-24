@@ -1,0 +1,20 @@
+packages:
+  - local
+  - remote
+  - data
+  - domain
+  - ui
+
+rules:
+  - data <- domain -> ui
+  - local <- data
+  - remote <- data
+
+  #ui:
+  #  - domain
+  #data:
+  #  - domain
+  #local:
+  #  - data
+  #remote:
+  #  - data
