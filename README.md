@@ -101,3 +101,7 @@ To check the validity of your module's folder structure, run:
 
 An example result will look like this:
 ![readme_example_result.png](images/readme_example_result.png)
+
+### Compatibility
+
+This plugin is currently compatible up to Kotlin 2.0.0.
