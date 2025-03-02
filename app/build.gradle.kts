@@ -1,6 +1,7 @@
 plugins {
     application
     id("com.adrianczuczka.structural")
+    kotlin("jvm")
 }
 
 dependencies {
@@ -11,5 +12,5 @@ application {
 }
 
 structural {
-    config = "../structural.yml"
+    config = "$rootDir/structural.yml"
 }
