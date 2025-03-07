@@ -95,12 +95,26 @@ rules:
 ### Run the check
 
 To check the validity of your module's folder structure, run:
-```console
+```bash
 ./gradlew structuralCheck 
 ```
 
 An example result will look like this:
 ![readme_example_result.png](images/readme_example_result.png)
+
+### Setting a baseline
+To ignore certain issues, you can run this command:
+```bash
+./gradlew structuralGenerateBaseline
+```
+This will create a baseline file containing all current issues, which will be ignored on subsequent checks. By default,
+the baseline will be created in `$rootDir/baseline.xml`. To set a custom path, you can add this property:
+
+```kts
+structural {
+    baseline = "./baseline.xml"
+}
+```
 
 ### Compatibility
 
