@@ -1,4 +1,4 @@
-package com.adrianczuczka.structural
+package com.adrianczuczka.structural.yaml
 
 import org.yaml.snakeyaml.Yaml
 import java.io.File

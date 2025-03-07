@@ -1,5 +1,8 @@
 package com.adrianczuczka.structural
 
+import com.adrianczuczka.structural.baseline.BaselineData
+import com.adrianczuczka.structural.baseline.toXml
+import com.adrianczuczka.structural.yaml.parseYamlImportRules
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import java.io.File
@@ -18,12 +21,38 @@ class StructuralPlugin : Plugin<Project> {
             }.files
 
             val defaultRulesPath = "${project.rootDir}/structural.yml"
+            val defaultBaselinePath = "${project.rootDir}/baseline.xml"
 
             doLast {
-                checkForViolations(
+                val violations = checkForViolations(
                     kotlinFiles = kotlinFiles,
                     rulesPath = extension.config ?: defaultRulesPath,
+                    ignoredViolations = getIgnoredViolationsFromBaseline(
+                        baselinePath = extension.baseline ?: defaultBaselinePath
+                    )
                 )
+                violations.report()
+            }
+        }
+
+        project.tasks.register("structuralGenerateBaseline") {
+            group = "verification"
+            description = "Generates baseline of package issues"
+
+            val kotlinFiles = project.fileTree(project.projectDir) {
+                include("**/src/main/kotlin/**/*.kt", "**/src/main/java/**/*.kt")
+            }.files
+
+            val defaultRulesPath = "${project.rootDir}/structural.yml"
+            val defaultBaselinePath = "${project.rootDir}/baseline.xml"
+
+            doLast {
+                val violations = checkForViolations(
+                    kotlinFiles = kotlinFiles,
+                    rulesPath = extension.config ?: defaultRulesPath,
+                    ignoredViolations = emptyList()
+                )
+                violations.generateBaseline(extension.baseline ?: defaultBaselinePath)
             }
         }
     }
@@ -32,7 +61,8 @@ class StructuralPlugin : Plugin<Project> {
 private fun checkForViolations(
     kotlinFiles: Set<File>,
     rulesPath: String,
-) {
+    ignoredViolations: List<String>
+): Map<File, List<String>> {
     val rulesFile = File(rulesPath)
     if (rulesFile.exists()) {
         val yaml = rulesFile.parseYamlImportRules()
@@ -79,9 +109,10 @@ private fun checkForViolations(
                                                 .first()
                                         val allowedList = rules[localPackageName] ?: emptyList()
 
-                                        if (importedLocalPackage !in allowedList) {
-                                            val errorMessage =
-                                                "🚨 ${file.absolutePath}:${importDirective.getLineNumber()} : `$packageName` cannot import from `$importedPackage`"
+                                        val errorMessage =
+                                            "${file.absolutePath}:${importDirective.getLineNumber()} : `$packageName` cannot import from `$importedPackage`"
+
+                                        if (importedLocalPackage !in allowedList && errorMessage !in ignoredViolations) {
                                             violations.computeIfAbsent(file) { mutableListOf() }
                                                 .add(errorMessage)
                                         }
@@ -93,24 +124,7 @@ private fun checkForViolations(
                     throw Exception("Could not extract package name from kotlin file")
                 }
             }
-
-            if (violations.isNotEmpty()) {
-                println("🚨 Import rule violations found:")
-                violations.values.flatten().forEach { value ->
-                    println(value)
-                }
-                throw RuntimeException(
-                    "Import rule violations detected in ${violations.size} ${
-                        if (violations.size == 1) {
-                            "file"
-                        } else {
-                            "files"
-                        }
-                    }."
-                )
-            } else {
-                println("✅ All package imports follow the specified package rules.")
-            }
+            return violations
         } else {
             throw Exception("Could not parse config file")
         }
@@ -119,6 +133,31 @@ private fun checkForViolations(
     }
 }
 
+private fun Map<File, List<String>>.report() {
+    if (isNotEmpty()) {
+        println("\uD83D\uDEA8 Import rule violations found:")
+        values.flatten().forEach { value ->
+            println("\uD83D\uDEA8 $value")
+        }
+        throw RuntimeException(
+            "Import rule violations detected in ${size} ${
+                if (size == 1) {
+                    "file"
+                } else {
+                    "files"
+                }
+            }."
+        )
+    } else {
+        println("✅ All package imports follow the specified package rules.")
+    }
+}
+
+private fun Map<File, List<String>>.generateBaseline(baselinePath: String) {
+    File(baselinePath).writeText(BaselineData(values.flatten()).toXml())
+}
+
 open class StructuralExtension {
     var config: String? = null
+    var baseline: String? = null
 }

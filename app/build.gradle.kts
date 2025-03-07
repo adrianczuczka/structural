@@ -12,5 +12,6 @@ application {
 }
 
 structural {
-    config = "$rootDir/structural.yml"
+    config = "$rootDir/structural/structural.yml"
+    baseline = "$rootDir/structural/baseline.xml"
 }
