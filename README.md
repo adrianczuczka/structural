@@ -1,3 +1,7 @@
+![https://github.com/adrianczuczka/structural/releases](https://img.shields.io/maven-central/v/com.adrianczuczka/structural)
+![https://github.com/adrianczuczka/structural/issues](https://img.shields.io/github/issues/adrianczuczka/structural)
+![https://github.com/adrianczuczka/structural/actions](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)
+
 # Structural
 
 ![title image](images/readme_title_image.png)
@@ -59,13 +63,16 @@ These are all the packages that will have rules related to which ones can import
 
 The `rules` section should specify the rules which govern the package structure. There are two ways
 to write these rules. You can either use arrows to specify the relationships, like this:
+
 ```yaml
 rules:
   - data <- domain -> ui
   - local <- data
   - remote <- data
 ```
+
 This means that
+
 1. The `data` and `ui` folders can import from the `domain` folder, but not vice versa
 2. The `local` and `remote` folders can import from the `data` folder, but not vice versa
 
@@ -73,13 +80,15 @@ The same rules can also be written like this:
 
 ```yaml
 rules:
-  
-  # YAML lists are supported
-  ? [ui, data]
-    : - domain
 
-  ? [local, remote]
-    : - data
+  # YAML lists are supported
+  ? [ ui, data ]
+    :
+    - domain
+
+  ? [ local, remote ]
+    :
+    - data
 
   # Also works
   ui:
@@ -95,6 +104,7 @@ rules:
 ### Run the check
 
 To check the validity of your module's folder structure, run:
+
 ```bash
 ./gradlew structuralCheck 
 ```
@@ -103,10 +113,13 @@ An example result will look like this:
 ![readme_example_result.png](images/readme_example_result.png)
 
 ### Setting a baseline
+
 To ignore certain issues, you can run this command:
+
 ```bash
 ./gradlew structuralGenerateBaseline
 ```
+
 This will create a baseline file containing all current issues, which will be ignored on subsequent checks. By default,
 the baseline will be created in `$rootDir/baseline.xml`. To set a custom path, you can add this property:
 
