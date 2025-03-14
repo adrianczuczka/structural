@@ -50,7 +50,7 @@ class StructuralPlugin : Plugin<Project> {
                 val violations = checkForViolations(
                     kotlinFiles = kotlinFiles,
                     rulesPath = extension.config ?: defaultRulesPath,
-                    ignoredViolations = emptyList()
+                    ignoredViolations = emptySet()
                 )
                 violations.generateBaseline(extension.baseline ?: defaultBaselinePath)
             }
@@ -61,7 +61,7 @@ class StructuralPlugin : Plugin<Project> {
 private fun checkForViolations(
     kotlinFiles: Set<File>,
     rulesPath: String,
-    ignoredViolations: List<String>
+    ignoredViolations: Set<String>
 ): Map<File, List<String>> {
     val rulesFile = File(rulesPath)
     if (rulesFile.exists()) {
@@ -103,18 +103,27 @@ private fun checkForViolations(
                                     if (
                                         importedPackageParts.take(packagePathParts.size) == packagePathParts
                                     ) {
-                                        val importedLocalPackage =
-                                            importedPackageParts
-                                                .drop(packagePathParts.size)
-                                                .first()
-                                        val allowedList = rules[localPackageName] ?: emptyList()
+                                        // This means there's a file on the same level as the packages being checked. Disallow
+                                        if (importedPackageParts.size == packagePathParts.size) {
+                                            val className = importDirective.importPath?.fqName?.shortName()?.asString()
+                                            val errorMessage =
+                                                "${file.absolutePath}:${importDirective.getLineNumber()} : `class \"$className\" is on the same level as \"$packageName\" package. Move into a package`"
+                                            if (errorMessage !in ignoredViolations) {
+                                                violations.computeIfAbsent(file) { mutableListOf() }.add(errorMessage)
+                                            }
+                                        } else {
+                                            val importedLocalPackage =
+                                                importedPackageParts
+                                                    .drop(packagePathParts.size)
+                                                    .first()
+                                            val allowedList = rules[localPackageName] ?: emptyList()
 
-                                        val errorMessage =
-                                            "${file.absolutePath}:${importDirective.getLineNumber()} : `$packageName` cannot import from `$importedPackage`"
+                                            val errorMessage =
+                                                "${file.absolutePath}:${importDirective.getLineNumber()} : `$packageName` cannot import from `$importedPackage`"
 
-                                        if (importedLocalPackage !in allowedList && errorMessage !in ignoredViolations) {
-                                            violations.computeIfAbsent(file) { mutableListOf() }
-                                                .add(errorMessage)
+                                            if (importedLocalPackage !in allowedList && errorMessage !in ignoredViolations) {
+                                                violations.computeIfAbsent(file) { mutableListOf() }.add(errorMessage)
+                                            }
                                         }
                                     }
                                 }
@@ -129,6 +138,7 @@ private fun checkForViolations(
             throw Exception("Could not parse config file")
         }
     } else {
+        println(rulesPath)
         throw Exception("Could not find config file")
     }
 }
@@ -140,7 +150,7 @@ private fun Map<File, List<String>>.report() {
             println("\uD83D\uDEA8 $value")
         }
         throw RuntimeException(
-            "Import rule violations detected in ${size} ${
+            "Import rule violations detected in $size ${
                 if (size == 1) {
                     "file"
                 } else {

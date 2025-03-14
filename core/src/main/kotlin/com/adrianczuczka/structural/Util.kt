@@ -22,9 +22,9 @@ internal fun extractPackageFromImport(importPath: String): String {
 internal fun KtImportDirective.getLineNumber(): Int =
     containingKtFile.viewProvider.document.getLineNumber(textRange.startOffset) + 1
 
-internal fun getIgnoredViolationsFromBaseline(baselinePath: String): List<String> {
+internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Set<String> {
     val file = File(baselinePath)
-    if (!file.exists()) return emptyList()
+    if (!file.exists()) return emptySet()
 
     val document: Document =
         DocumentBuilderFactory.newInstance()
@@ -35,7 +35,7 @@ internal fun getIgnoredViolationsFromBaseline(baselinePath: String): List<String
 
     val violationsNodeList: NodeList = document.getElementsByTagName("ID")
 
-    val violations = mutableListOf<String>()
+    val violations = mutableSetOf<String>()
     for (i in 0 until violationsNodeList.length) {
         val node = violationsNodeList.item(i)
         if (node is Element) {

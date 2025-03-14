@@ -366,5 +366,40 @@ class StructuralPluginTest {
         // Ensure execution time is reasonable
         assertThat(executionTime).isLessThan(5000) // Should finish within 5 seconds
     }
+
+    @Test
+    fun `structuralCheck should not allow files on the same level as tracked packages`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                    package com.example.data
+                    
+                    import com.example.SameLevelAsPackageClass // Not allowed
+                    
+                    class Test
+                    """
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                    package com.example
+                                        
+                    class SameLevelAsPackageClass
+                    """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail() // Should fail
+
+
+        assertThat(result.output).contains("class \"SameLevelAsPackageClass\" is on the same level as \"com.example.data\" package. Move into a package")
+    }
 }
 

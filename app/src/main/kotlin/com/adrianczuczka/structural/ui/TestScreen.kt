@@ -1,3 +1,9 @@
 package com.adrianczuczka.structural.ui
 
-class TestScreen
+import com.adrianczuczka.structural.Test
+
+class TestScreen {
+    fun main() {
+        Test()
+    }
+}
