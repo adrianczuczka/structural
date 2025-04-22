@@ -1,8 +1,5 @@
 <?xml version="1.0" ?>
 <StructuralBaseline>
   <CurrentIssues>
-    <ID>/Users/adrianczuczka/IdeaProjects/structural/app/src/main/kotlin/com/adrianczuczka/structural/ui/TestViewModel.kt:3 : `com.adrianczuczka.structural.ui` cannot import from `com.adrianczuczka.structural.data`</ID>
-    <ID>/Users/adrianczuczka/IdeaProjects/structural/app/src/main/kotlin/com/adrianczuczka/structural/data/TestRepository.kt:6 : `com.adrianczuczka.structural.data` cannot import from `com.adrianczuczka.structural.ui`</ID>
-    <ID>/Users/adrianczuczka/IdeaProjects/structural/app/src/main/kotlin/com/adrianczuczka/structural/domain/TestUseCase.kt:3 : `com.adrianczuczka.structural.domain` cannot import from `com.adrianczuczka.structural.data`</ID>
   </CurrentIssues>
 </StructuralBaseline>

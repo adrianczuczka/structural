@@ -22,9 +22,9 @@ internal fun extractPackageFromImport(importPath: String): String {
 internal fun KtImportDirective.getLineNumber(): Int =
     containingKtFile.viewProvider.document.getLineNumber(textRange.startOffset) + 1
 
-internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Set<String> {
+internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String, List<ViolationData>> {
     val file = File(baselinePath)
-    if (!file.exists()) return emptySet()
+    if (!file.exists()) return emptyMap()
 
     val document: Document =
         DocumentBuilderFactory.newInstance()
@@ -35,11 +35,30 @@ internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Set<String>
 
     val violationsNodeList: NodeList = document.getElementsByTagName("ID")
 
-    val violations = mutableSetOf<String>()
+    val violations = mutableMapOf<String, MutableList<ViolationData>>()
     for (i in 0 until violationsNodeList.length) {
         val node = violationsNodeList.item(i)
         if (node is Element) {
-            violations += node.textContent.trim()
+            val idParts = node.textContent.trim().split("$")
+            val violation =
+                when (idParts.first()) {
+                    "FileOnSameLevelAsPackages" ->
+                        ViolationData.FileOnSameLevelAsPackages(
+                            lineNumber = idParts[2].toInt(),
+                            className = idParts[3],
+                            importedPackage = idParts[4]
+                        )
+
+                    "ForbiddenImport" ->
+                        ViolationData.ForbiddenImport(
+                            lineNumber = idParts[2].toInt(),
+                            importingPackage = idParts[3],
+                            importedPackage = idParts[4]
+                        )
+
+                    else -> null
+                }
+            violation?.let { violations.computeIfAbsent(idParts[1]) { mutableListOf() } += it }
         }
     }
     return violations
