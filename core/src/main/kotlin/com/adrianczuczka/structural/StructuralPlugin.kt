@@ -50,7 +50,7 @@ class StructuralPlugin : Plugin<Project> {
                 val violations = checkForViolations(
                     kotlinFiles = kotlinFiles,
                     rulesPath = extension.config ?: defaultRulesPath,
-                    ignoredViolations = emptySet()
+                    ignoredViolations = emptyMap()
                 )
                 violations.generateBaseline(extension.baseline ?: defaultBaselinePath)
             }
@@ -61,8 +61,8 @@ class StructuralPlugin : Plugin<Project> {
 private fun checkForViolations(
     kotlinFiles: Set<File>,
     rulesPath: String,
-    ignoredViolations: Set<String>
-): Map<File, List<String>> {
+    ignoredViolations: Map<String, List<ViolationData>>
+): Map<File, List<ViolationData>> {
     val rulesFile = File(rulesPath)
     if (rulesFile.exists()) {
         val yaml = rulesFile.parseYamlImportRules()
@@ -71,7 +71,7 @@ private fun checkForViolations(
 
             println("📜 Allowed import rules loaded: $rules")
 
-            val violations = mutableMapOf<File, MutableList<String>>()
+            val violations = mutableMapOf<File, MutableList<ViolationData>>()
 
             kotlinFiles.forEach { file ->
                 val ktFile = file.parseKotlinFile()
@@ -105,12 +105,25 @@ private fun checkForViolations(
                                     ) {
                                         // This means there's a file on the same level as the packages being checked. Disallow
                                         if (importedPackageParts.size == packagePathParts.size) {
-                                            val className = importDirective.importPath?.fqName?.shortName()?.asString()
-                                            val errorMessage =
-                                                "${file.absolutePath}:${importDirective.getLineNumber()} : `class \"$className\" is on the same level as \"$packageName\" package. Move into a package`"
-                                            if (errorMessage !in ignoredViolations) {
-                                                violations.computeIfAbsent(file) { mutableListOf() }.add(errorMessage)
-                                            }
+                                            importDirective
+                                                .importPath
+                                                ?.fqName
+                                                ?.shortName()
+                                                ?.asString()
+                                                ?.let { className ->
+                                                    val violationData =
+                                                        ViolationData.FileOnSameLevelAsPackages(
+                                                            lineNumber = importDirective.getLineNumber(),
+                                                            className = className,
+                                                            importedPackage = importedPackage
+                                                        )
+                                                    if (
+                                                        violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
+                                                    ) {
+                                                        violations.computeIfAbsent(file) { mutableListOf() }
+                                                            .add(violationData)
+                                                    }
+                                                }
                                         } else {
                                             val importedLocalPackage =
                                                 importedPackageParts
@@ -118,11 +131,17 @@ private fun checkForViolations(
                                                     .first()
                                             val allowedList = rules[localPackageName] ?: emptyList()
 
-                                            val errorMessage =
-                                                "${file.absolutePath}:${importDirective.getLineNumber()} : `$packageName` cannot import from `$importedPackage`"
+                                            val violationData = ViolationData.ForbiddenImport(
+                                                lineNumber = importDirective.getLineNumber(),
+                                                importingPackage = packageName,
+                                                importedPackage = importedPackage
+                                            )
 
-                                            if (importedLocalPackage !in allowedList && errorMessage !in ignoredViolations) {
-                                                violations.computeIfAbsent(file) { mutableListOf() }.add(errorMessage)
+                                            if (
+                                                importedLocalPackage !in allowedList &&
+                                                violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
+                                            ) {
+                                                violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
                                             }
                                         }
                                     }
@@ -143,11 +162,21 @@ private fun checkForViolations(
     }
 }
 
-private fun Map<File, List<String>>.report() {
+private fun Map<File, List<ViolationData>>.report() {
     if (isNotEmpty()) {
         println("\uD83D\uDEA8 Import rule violations found:")
-        values.flatten().forEach { value ->
-            println("\uD83D\uDEA8 $value")
+        entries.forEach { (file, violations) ->
+            violations.forEach { violation ->
+                val errorMessage =
+                    when (violation) {
+                        is ViolationData.FileOnSameLevelAsPackages ->
+                            "${file.absolutePath}:${violation.lineNumber} : `class \"${violation.className}\" is on the same level as \"${violation.importedPackage}\" package. Move into a package`"
+
+                        is ViolationData.ForbiddenImport ->
+                            "${file.absolutePath}:${violation.lineNumber} : `${violation.importingPackage}` cannot import from `${violation.importedPackage}`"
+                    }
+                println("\uD83D\uDEA8 $errorMessage")
+            }
         }
         throw RuntimeException(
             "Import rule violations detected in $size ${
@@ -163,8 +192,44 @@ private fun Map<File, List<String>>.report() {
     }
 }
 
-private fun Map<File, List<String>>.generateBaseline(baselinePath: String) {
-    File(baselinePath).writeText(BaselineData(values.flatten()).toXml())
+internal sealed class ViolationData {
+    data class FileOnSameLevelAsPackages(
+        val lineNumber: Int,
+        val className: String,
+        val importedPackage: String
+    ) : ViolationData()
+
+    data class ForbiddenImport(
+        val lineNumber: Int,
+        val importingPackage: String,
+        val importedPackage: String
+    ) : ViolationData()
+}
+
+private fun Map<File, List<ViolationData>>.generateBaseline(baselinePath: String) {
+    val baselineEntries =
+        entries.map { (file, violations) ->
+            violations.map { violation ->
+                when (violation) {
+                    is ViolationData.FileOnSameLevelAsPackages ->
+                        "FileOnSameLevelAsPackages" +
+                                "$${file.nameWithoutExtension}" +
+                                "$${violation.lineNumber}" +
+                                "$${violation.className}" +
+                                "$${violation.importedPackage}"
+
+                    is ViolationData.ForbiddenImport ->
+                        "ForbiddenImport" +
+                                "$${file.nameWithoutExtension}" +
+                                "$${violation.lineNumber}" +
+                                "$${violation.importingPackage}" +
+                                "$${violation.importedPackage}"
+                }
+            }
+        }.flatten()
+    File(baselinePath).writeText(
+        BaselineData(baselineEntries).toXml()
+    )
 }
 
 open class StructuralExtension {

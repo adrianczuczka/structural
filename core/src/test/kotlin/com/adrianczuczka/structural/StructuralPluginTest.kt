@@ -234,7 +234,7 @@ class StructuralPluginTest {
             }
             
             structural {
-                config = "../structural.yml"
+                config = "${'$'}rootDir/custom-structural.yml"
             }
             """
         )
@@ -399,7 +399,7 @@ class StructuralPluginTest {
             .buildAndFail() // Should fail
 
 
-        assertThat(result.output).contains("class \"SameLevelAsPackageClass\" is on the same level as \"com.example.data\" package. Move into a package")
+        assertThat(result.output).contains("class \"SameLevelAsPackageClass\" is on the same level as \"com.example\" package. Move into a package")
     }
 }
 
