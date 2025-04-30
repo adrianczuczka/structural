@@ -148,8 +148,6 @@ private fun checkForViolations(
                                 }
                             }
                     }
-                } else {
-                    throw Exception("Could not extract package name from kotlin file")
                 }
             }
             return violations
