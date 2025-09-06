@@ -4,7 +4,7 @@ plugins {
     id("io.deepmedia.tools.deployer") version "0.17.0"
 }
 
-val releaseVersion = "0.2.3"
+val releaseVersion = "1.0.0"
 
 group = "com.adrianczuczka"
 version = releaseVersion
@@ -77,7 +77,7 @@ deployer {
 dependencies {
     implementation(gradleApi())
     implementation(localGroovy())
-    implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:1.9.0")
+    implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0")
     implementation("org.yaml:snakeyaml:2.3")
 
     testImplementation("com.google.truth:truth:1.4.4")
