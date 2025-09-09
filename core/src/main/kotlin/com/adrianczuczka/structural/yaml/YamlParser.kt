@@ -1,5 +1,6 @@
 package com.adrianczuczka.structural.yaml
 
+import org.gradle.api.GradleException
 import org.yaml.snakeyaml.Yaml
 import java.io.File
 
@@ -34,10 +35,10 @@ fun File.parseYamlImportRules(): StructuralData? =
         val data: Map<String, Any> = Yaml().load(inputStream())
         val allowedListPerPackage = mutableMapOf<String, MutableList<String>>()
         val checkedPackages = (data["packages"] as? List<*>)?.filterIsInstance<String>()
-        val rawRules = data["rules"] ?: throw Exception("No rules specified in config file")
+        val rawRules = data["rules"] ?: throw GradleException("No rules specified in config file")
 
         if (checkedPackages.isNullOrEmpty()) {
-            throw Exception("No packages specified to check in config file")
+            throw GradleException("No packages specified to check in config file")
         }
 
         // Each checked package should be allowed to import from within itself

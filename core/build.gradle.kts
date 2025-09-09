@@ -4,7 +4,7 @@ plugins {
     id("io.deepmedia.tools.deployer") version "0.17.0"
 }
 
-val releaseVersion = "1.0.0"
+val releaseVersion = "1.0.1"
 
 group = "com.adrianczuczka"
 version = releaseVersion
@@ -74,10 +74,20 @@ deployer {
     localSpec {}
 }
 
+val structuralWorker: Configuration by configurations.creating {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+    isVisible = false
+    defaultDependencies {
+        add(project.dependencies.create("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0"))
+        add(project.dependencies.create("org.yaml:snakeyaml:2.3"))
+    }
+}
+
 dependencies {
     implementation(gradleApi())
     implementation(localGroovy())
-    implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0")
+    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0")
     implementation("org.yaml:snakeyaml:2.3")
 
     testImplementation("com.google.truth:truth:1.4.4")
