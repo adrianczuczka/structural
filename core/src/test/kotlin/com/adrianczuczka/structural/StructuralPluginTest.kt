@@ -512,5 +512,101 @@ class StructuralPluginTest {
 
         assertThat(result.output).contains("class \"SameLevelAsPackageClass\" is on the same level as \"com.example\" package. Move into a package")
     }
+
+    @Test
+    fun `structuralCheck should fail when a Java file has an invalid import`() {
+        File(testProjectDir, "src/main/java/com/example/ui/Test.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui;
+
+                import com.example.data.SomeClass;
+
+                public class Test {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
+    }
+
+    @Test
+    fun `structuralCheck should pass when a Java file has a valid import`() {
+        File(testProjectDir, "src/main/java/com/example/data/Test.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data;
+
+                import com.example.domain.SomeClass;
+
+                public class Test {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should fail when a Java file has an invalid static import`() {
+        File(testProjectDir, "src/main/java/com/example/ui/Test.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui;
+
+                import static com.example.data.SomeClass.someMethod;
+
+                public class Test {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data.SomeClass`")
+    }
+
+    @Test
+    fun `structuralCheck should fail when a Java file has an invalid wildcard import`() {
+        File(testProjectDir, "src/main/java/com/example/ui/Test.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui;
+
+                import com.example.data.*;
+
+                public class Test {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
+    }
 }
 

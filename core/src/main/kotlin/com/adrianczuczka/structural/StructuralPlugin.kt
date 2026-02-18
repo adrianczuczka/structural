@@ -14,7 +14,7 @@ class StructuralPlugin : Plugin<Project> {
 
         val kotlinFilesProvider = project.provider {
             project.fileTree(project.projectDir) {
-                include("**/src/main/kotlin/**/*.kt", "**/src/main/java/**/*.kt")
+                include("**/src/main/kotlin/**/*.kt", "**/src/main/java/**/*.kt", "**/src/main/java/**/*.java")
             }.files.toList()
         }
 

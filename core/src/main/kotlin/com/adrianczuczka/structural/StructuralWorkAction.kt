@@ -49,8 +49,8 @@ private fun checkForViolations(
             val violations = mutableMapOf<File, MutableList<ViolationData>>()
 
             kotlinFiles.forEach { file ->
-                val ktFile = file.parseKotlinFile()
-                val packageName = ktFile.extractPackageName()
+                val sourceFile = file.parseSourceFile()
+                val packageName = sourceFile.packageName
 
                 if (packageName != null) {
                     val parts = packageName.split(".")
@@ -62,60 +62,51 @@ private fun checkForViolations(
                             val packagePathParts = parts.take(index)
 
                             // Check each import in file for violations
-                            ktFile.importDirectives
-                                .forEach { importDirective ->
-                                    val importPath = importDirective.importPath?.pathStr
-                                    if (importPath != null) {
-                                        val importedPackage = extractPackageFromImport(importPath)
-                                        val importedPackageParts = importedPackage.split(".")
-                                        if (
-                                            importedPackageParts.take(packagePathParts.size) == packagePathParts
-                                        ) {
-                                            // This means there's a file on the same level as the packages being checked. Disallow
-                                            if (importedPackageParts.size == packagePathParts.size) {
-                                                importDirective
-                                                    .importPath
-                                                    ?.fqName
-                                                    ?.shortName()
-                                                    ?.asString()
-                                                    ?.let { className ->
-                                                        val violationData =
-                                                            ViolationData.FileOnSameLevelAsPackages(
-                                                                lineNumber = importDirective.getLineNumber(),
-                                                                className = className,
-                                                                importedPackage = importedPackage
-                                                            )
-                                                        if (
-                                                            violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
-                                                        ) {
-                                                            violations.computeIfAbsent(file) { mutableListOf() }
-                                                                .add(violationData)
-                                                        }
-                                                    }
-                                            } else {
-                                                val importedLocalPackage =
-                                                    importedPackageParts
-                                                        .drop(packagePathParts.size)
-                                                        .first()
-                                                val allowedList = rules[localPackageName] ?: emptyList()
-
-                                                val violationData = ViolationData.ForbiddenImport(
-                                                    lineNumber = importDirective.getLineNumber(),
-                                                    importingPackage = packageName,
+                            sourceFile.imports.forEach { import ->
+                                val importedPackage = extractPackageFromImport(import.importPath)
+                                val importedPackageParts = importedPackage.split(".")
+                                if (
+                                    importedPackageParts.take(packagePathParts.size) == packagePathParts
+                                ) {
+                                    // This means there's a file on the same level as the packages being checked. Disallow
+                                    if (importedPackageParts.size == packagePathParts.size) {
+                                        import.className?.let { className ->
+                                            val violationData =
+                                                ViolationData.FileOnSameLevelAsPackages(
+                                                    lineNumber = import.lineNumber,
+                                                    className = className,
                                                     importedPackage = importedPackage
                                                 )
-
-                                                if (
-                                                    importedLocalPackage != localPackageName &&
-                                                    importedLocalPackage !in allowedList &&
-                                                    violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
-                                                ) {
-                                                    violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
-                                                }
+                                            if (
+                                                violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
+                                            ) {
+                                                violations.computeIfAbsent(file) { mutableListOf() }
+                                                    .add(violationData)
                                             }
+                                        }
+                                    } else {
+                                        val importedLocalPackage =
+                                            importedPackageParts
+                                                .drop(packagePathParts.size)
+                                                .first()
+                                        val allowedList = rules[localPackageName] ?: emptyList()
+
+                                        val violationData = ViolationData.ForbiddenImport(
+                                            lineNumber = import.lineNumber,
+                                            importingPackage = packageName,
+                                            importedPackage = importedPackage
+                                        )
+
+                                        if (
+                                            importedLocalPackage != localPackageName &&
+                                            importedLocalPackage !in allowedList &&
+                                            violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
+                                        ) {
+                                            violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
                                         }
                                     }
                                 }
+                            }
                         }
                     }
                 }
