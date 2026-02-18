@@ -368,6 +368,117 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `structuralCheck should fail when file in nested package has invalid import`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/home/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui.home
+
+                import com.example.data.SomeClass // 🚨 Forbidden import (ui cannot import data)
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui.home` cannot import from `com.example.data`")
+    }
+
+    @Test
+    fun `structuralCheck should pass when file in nested package has valid import`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/local/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data.local
+
+                import com.example.domain.SomeClass // ✅ Allowed (data <- domain)
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should allow imports within same tracked package hierarchy`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/local/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data.local
+
+                import com.example.data.remote.SomeClass // ✅ Same tracked package (data)
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should check each package layer independently`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - local
+              - domain
+              - ui
+
+            rules:
+              - data <- domain -> ui
+              - local <- domain
+            """
+        )
+
+        // File in data.local importing from data.remote — local layer should flag this
+        File(testProjectDir, "src/main/kotlin/com/example/data/local/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data.local
+
+                import com.example.data.remote.SomeClass // 🚨 local cannot import remote
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.data.local` cannot import from `com.example.data.remote`")
+    }
+
+    @Test
     fun `structuralCheck should not allow files on the same level as tracked packages`() {
         File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
             parentFile.mkdirs()
