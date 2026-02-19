@@ -18,13 +18,14 @@ Structural is a Gradle plugin (`com.adrianczuczka.structural`) that enforces pac
 # Run a single test by name
 ./gradlew :core:test --tests "com.adrianczuczka.structural.StructuralPluginTest.structuralCheck should fail when an invalid import is found"
 
-# Run the plugin check on the example app
-./gradlew :app:structuralCheck
+# Run the plugin check on the example apps
+./gradlew :kotlin-test-app:structuralCheck
+./gradlew :java-test-app:structuralCheck
 ```
 
 ## Architecture
 
-The plugin lives in `core/`. The `app/` module is an example project that applies the plugin.
+The plugin lives in `core/`. The `kotlin-test-app/` and `java-test-app/` modules are example projects that apply the plugin (they contain intentional violations for testing).
 
 **Plugin flow:** `StructuralPlugin` registers Gradle tasks → `StructuralTask` submits work via Gradle's Worker API with classloader isolation → `StructuralWorkAction` performs the actual analysis.
 
@@ -38,8 +39,7 @@ The plugin lives in `core/`. The `app/` module is an example project that applie
 
 ## Key Technical Details
 
-``- Kotlin 2.1.0, Gradle 8.13, JDK 17
+- Kotlin 2.1.0, Gradle 8.13, JDK 17
 - Tests use Gradle TestKit (`GradleRunner`) to create temporary projects and run the plugin tasks
 - The kotlin-compiler-embeddable runs in an isolated classloader to avoid conflicts with the host project
 - Published to Maven Central via `io.deepmedia.tools.deployer`
-``
