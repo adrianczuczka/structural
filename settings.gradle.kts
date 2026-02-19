@@ -13,6 +13,7 @@ dependencyResolutionManagement {
     includeBuild("core")
 }
 
-include(":app")
+include(":kotlin-test-app")
+include(":java-test-app")
 
 rootProject.name = "structural"
