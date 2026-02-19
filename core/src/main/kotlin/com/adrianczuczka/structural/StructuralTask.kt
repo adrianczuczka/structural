@@ -24,7 +24,7 @@ internal abstract class StructuralTask : DefaultTask() {
     abstract val mode: Property<String> // "check" or "baseline"
 
     @get:InputFiles
-    abstract val kotlinFiles: ListProperty<File>
+    abstract val sourceFiles: ListProperty<File>
 
     @get:Input
     abstract val rulesPath: Property<String>
@@ -39,7 +39,7 @@ internal abstract class StructuralTask : DefaultTask() {
         }
         workQueue.submit(StructuralWorkAction::class.java) {
             mode.set(this@StructuralTask.mode)
-            kotlinFiles.set(this@StructuralTask.kotlinFiles)
+            sourceFiles.set(this@StructuralTask.sourceFiles)
             rulesPath.set(this@StructuralTask.rulesPath)
             baselinePath.set(this@StructuralTask.baselinePath)
         }

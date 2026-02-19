@@ -12,19 +12,18 @@ abstract class StructuralWorkAction : WorkAction<StructuralParams> {
         val mode = parameters.mode.get()
         val rulesPath = parameters.rulesPath.get()
         val baselinePath = parameters.baselinePath.get()
-        val files = parameters.kotlinFiles.get()
+        val files = parameters.sourceFiles.get()
 
-        println(rulesPath)
         if (mode == "check") {
             val violations = checkForViolations(
-                kotlinFiles = files,
+                sourceFiles = files,
                 rulesPath = rulesPath,
                 ignoredViolations = getIgnoredViolationsFromBaseline(baselinePath)
             )
             violations.report()
         } else {
             val violations = checkForViolations(
-                kotlinFiles = files,
+                sourceFiles = files,
                 rulesPath = rulesPath,
                 ignoredViolations = emptyMap()
             )
@@ -34,7 +33,7 @@ abstract class StructuralWorkAction : WorkAction<StructuralParams> {
 }
 
 private fun checkForViolations(
-    kotlinFiles: Set<File>,
+    sourceFiles: Set<File>,
     rulesPath: String,
     ignoredViolations: Map<String, List<ViolationData>>
 ): Map<File, List<ViolationData>> {
@@ -48,7 +47,7 @@ private fun checkForViolations(
 
             val violations = mutableMapOf<File, MutableList<ViolationData>>()
 
-            kotlinFiles.forEach { file ->
+            sourceFiles.forEach { file ->
                 val sourceFile = file.parseSourceFile()
                 val packageName = sourceFile.packageName
 

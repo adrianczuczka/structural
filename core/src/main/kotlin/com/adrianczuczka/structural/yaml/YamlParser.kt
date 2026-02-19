@@ -41,9 +41,8 @@ fun File.parseYamlImportRules(): StructuralData? =
             throw GradleException("No packages specified to check in config file")
         }
 
-        // Each checked package should be allowed to import from within itself
         checkedPackages.forEach {
-            allowedListPerPackage.computeIfAbsent(it) { mutableListOf() } += it
+            allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
         }
         when (rawRules) {
             is List<*> -> {

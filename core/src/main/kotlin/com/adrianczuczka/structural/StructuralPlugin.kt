@@ -12,9 +12,9 @@ class StructuralPlugin : Plugin<Project> {
             project.repositories.mavenCentral()
         }
 
-        val kotlinFilesProvider = project.provider {
+        val sourceFilesProvider = project.provider {
             project.fileTree(project.projectDir) {
-                include("**/src/main/kotlin/**/*.kt", "**/src/main/java/**/*.kt", "**/src/main/java/**/*.java")
+                include("**/src/main/kotlin/**/*.kt", "**/src/main/kotlin/**/*.java", "**/src/main/java/**/*.kt", "**/src/main/java/**/*.java")
             }.files.toList()
         }
 
@@ -40,7 +40,7 @@ class StructuralPlugin : Plugin<Project> {
             val defaultBaselinePath = "${project.rootDir}/baseline.xml"
 
             mode.set("check")
-            kotlinFiles.set(kotlinFilesProvider)
+            sourceFiles.set(sourceFilesProvider)
             rulesPath.set(extension.config ?: defaultRulesPath)
             baselinePath.set(extension.baseline ?: defaultBaselinePath)
             kotlinCompiler.from(structuralConfiguration)
@@ -54,7 +54,7 @@ class StructuralPlugin : Plugin<Project> {
             val defaultBaselinePath = "${project.rootDir}/baseline.xml"
 
             mode.set("baseline")
-            kotlinFiles.set(kotlinFilesProvider)
+            sourceFiles.set(sourceFilesProvider)
             rulesPath.set(extension.config ?: defaultRulesPath)
             baselinePath.set(extension.baseline ?: defaultBaselinePath)
             kotlinCompiler.from(structuralConfiguration)

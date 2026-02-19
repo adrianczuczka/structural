@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.File
+import kotlin.io.path.createTempDirectory
 
 class StructuralPluginTest {
 
@@ -15,7 +16,7 @@ class StructuralPluginTest {
 
     @BeforeEach
     fun setup() {
-        testProjectDir = createTempDir("gradle-test-project")
+        testProjectDir = createTempDirectory("gradle-test-project").toFile()
         File(testProjectDir, "settings.gradle.kts").writeText("")
         File(testProjectDir, "build.gradle.kts").writeText(
             """

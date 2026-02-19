@@ -7,7 +7,7 @@ import java.io.File
 
 internal interface StructuralParams : WorkParameters {
     val mode: Property<String>
-    val kotlinFiles: SetProperty<File>
+    val sourceFiles: SetProperty<File>
     val rulesPath: Property<String>
     val baselinePath: Property<String>
 }
