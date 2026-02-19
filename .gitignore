@@ -1,14 +1,10 @@
 # macOS
 .DS_Store
 
-# IntelliJ - user-specific
-.idea/**/workspace.xml
-.idea/**/tasks.xml
-.idea/**/usage.statistics.xml
-.idea/**/dictionaries
-.idea/**/shelf
-.idea/**/gradle.xml
-.idea/**/libraries
+# IntelliJ - ignore everything except shared settings
+.idea/*
+!.idea/codeStyles/
+!.idea/vcs.xml
 
 # IntelliJ - generated
 out/
