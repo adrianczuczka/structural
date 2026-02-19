@@ -8,7 +8,7 @@
 
 ---
 
-A lightweight Gradle plugin for enforcing package dependency rules in Android & Kotlin projects.
+A lightweight Gradle plugin for enforcing package dependency rules in Kotlin and Java projects.
 Define which packages can import from others within your project and enforce it automatically.
 
 Structural is intended to be a quick way to enforce a modular architecture when other tools are not
@@ -16,8 +16,6 @@ preferred or available. However, it can also be used for other purposes such as 
 local package from importing from another.
 
 ## Installation
-
----
 
 ```kts
 plugins {
@@ -30,8 +28,6 @@ repositories {
 ```
 
 ## Usage
-
----
 
 ### Set the structure
 
@@ -103,7 +99,7 @@ rules:
 
 ### Run the check
 
-To check the validity of your module's folder structure, run:
+To check your project's package imports against the rules, run:
 
 ```bash
 ./gradlew structuralCheck 
@@ -131,4 +127,4 @@ structural {
 
 ### Compatibility
 
-This plugin is currently compatible up to Kotlin 2.0.0.
+This plugin supports both Kotlin and Java source files. It uses the Kotlin compiler for parsing via an isolated classloader, so it works with any Kotlin version in your project.
