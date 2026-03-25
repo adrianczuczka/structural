@@ -97,6 +97,29 @@ rules:
     - data
 ```
 
+### Multi-segment package names
+
+If your project uses packages that share common prefixes and can't be distinguished by a single
+segment, you can use full dotted package names instead:
+
+```yaml
+packages:
+  - "com.example.app.core"
+  - "com.example.app.service"
+  - "com.example.app.util"
+
+rules:
+  "com.example.app.core":
+    - "com.example.app.service"
+    - "com.example.app.util"
+  "com.example.app.service":
+    - "com.example.app.util"
+```
+
+This works the same way as single-segment names — files in `com.example.app.service` (and its
+sub-packages) will be checked against `com.example.app.service`'s rules. When packages overlap,
+the most specific (longest) match takes priority.
+
 ### Run the check
 
 To check your project's package imports against the rules, run:

@@ -47,6 +47,10 @@ private fun checkForViolations(
 
             val violations = mutableMapOf<File, MutableList<ViolationData>>()
 
+            val singleSegmentPackages = checkedPackages.filter { !it.contains(".") }.toSet()
+            // Sort by length descending so the most specific package matches first
+            val multiSegmentPackages = checkedPackages.filter { it.contains(".") }.sortedByDescending { it.length }
+
             sourceFiles.forEach { file ->
                 val sourceFile = file.parseSourceFile()
                 val packageName = sourceFile.packageName
@@ -54,54 +58,87 @@ private fun checkForViolations(
                 if (packageName != null) {
                     val parts = packageName.split(".")
 
-                    // Check each layer of the package hierarchy that matches a tracked package
-                    parts.forEachIndexed { index, part ->
-                        if (part in checkedPackages) {
-                            val localPackageName = part
-                            val packagePathParts = parts.take(index)
+                    // Try multi-segment match first (most specific wins)
+                    val multiSegmentMatch = multiSegmentPackages.find { trackedPackage ->
+                        packageName == trackedPackage || packageName.startsWith("$trackedPackage.")
+                    }
 
-                            // Check each import in file for violations
-                            sourceFile.imports.forEach { import ->
-                                val importedPackage = extractPackageFromImport(import.importPath)
-                                val importedPackageParts = importedPackage.split(".")
-                                if (
-                                    importedPackageParts.take(packagePathParts.size) == packagePathParts
-                                ) {
-                                    // This means there's a file on the same level as the packages being checked. Disallow
-                                    if (importedPackageParts.size == packagePathParts.size) {
-                                        import.className?.let { className ->
-                                            val violationData =
-                                                ViolationData.FileOnSameLevelAsPackages(
-                                                    lineNumber = import.lineNumber,
-                                                    className = className,
-                                                    importedPackage = importedPackage
-                                                )
+                    if (multiSegmentMatch != null) {
+                        // Multi-segment package matching (e.g. "com.example.app.service")
+                        sourceFile.imports.forEach { import ->
+                            val importedPackage = extractPackageFromImport(import.importPath)
+
+                            // Find which tracked multi-segment package the import belongs to (most specific wins)
+                            val importedTrackedPackage = multiSegmentPackages
+                                .find { tp ->
+                                    importedPackage == tp || importedPackage.startsWith("$tp.")
+                                }
+
+                            if (importedTrackedPackage != null && importedTrackedPackage != multiSegmentMatch) {
+                                val allowedList = rules[multiSegmentMatch] ?: emptyList()
+                                if (importedTrackedPackage !in allowedList) {
+                                    val violationData = ViolationData.ForbiddenImport(
+                                        lineNumber = import.lineNumber,
+                                        importingPackage = packageName,
+                                        importedPackage = importedPackage
+                                    )
+                                    if (
+                                        violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
+                                    ) {
+                                        violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Single-segment package matching (e.g. "data", "domain", "ui")
+                        parts.forEachIndexed { index, part ->
+                            if (part in singleSegmentPackages) {
+                                val packagePathParts = parts.take(index)
+
+                                // Check each import in file for violations
+                                sourceFile.imports.forEach { import ->
+                                    val importedPackage = extractPackageFromImport(import.importPath)
+                                    val importedPackageParts = importedPackage.split(".")
+                                    if (
+                                        importedPackageParts.take(packagePathParts.size) == packagePathParts
+                                    ) {
+                                        // This means there's a file on the same level as the packages being checked. Disallow
+                                        if (importedPackageParts.size == packagePathParts.size) {
+                                            import.className?.let { className ->
+                                                val violationData =
+                                                    ViolationData.FileOnSameLevelAsPackages(
+                                                        lineNumber = import.lineNumber,
+                                                        className = className,
+                                                        importedPackage = importedPackage
+                                                    )
+                                                if (
+                                                    violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
+                                                ) {
+                                                    violations.computeIfAbsent(file) { mutableListOf() }
+                                                        .add(violationData)
+                                                }
+                                            }
+                                        } else {
+                                            val importedLocalPackage =
+                                                importedPackageParts
+                                                    .drop(packagePathParts.size)
+                                                    .first()
+                                            val allowedList = rules[part] ?: emptyList()
+
+                                            val violationData = ViolationData.ForbiddenImport(
+                                                lineNumber = import.lineNumber,
+                                                importingPackage = packageName,
+                                                importedPackage = importedPackage
+                                            )
+
                                             if (
+                                                importedLocalPackage != part &&
+                                                importedLocalPackage !in allowedList &&
                                                 violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
                                             ) {
-                                                violations.computeIfAbsent(file) { mutableListOf() }
-                                                    .add(violationData)
+                                                violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
                                             }
-                                        }
-                                    } else {
-                                        val importedLocalPackage =
-                                            importedPackageParts
-                                                .drop(packagePathParts.size)
-                                                .first()
-                                        val allowedList = rules[localPackageName] ?: emptyList()
-
-                                        val violationData = ViolationData.ForbiddenImport(
-                                            lineNumber = import.lineNumber,
-                                            importingPackage = packageName,
-                                            importedPackage = importedPackage
-                                        )
-
-                                        if (
-                                            importedLocalPackage != localPackageName &&
-                                            importedLocalPackage !in allowedList &&
-                                            violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
-                                        ) {
-                                            violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
                                         }
                                     }
                                 }

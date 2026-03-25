@@ -609,5 +609,125 @@ class StructuralPluginTest {
 
         assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
     }
+
+    @Test
+    fun `structuralCheck should detect violations with multi-segment package names`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.app.core"
+                - "com.example.app.service"
+                - "com.example.app.util"
+
+            rules:
+                "com.example.app.core":
+                    - "com.example.app.service"
+                    - "com.example.app.util"
+                "com.example.app.service":
+                    - "com.example.app.util"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/app/service/MyService.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.app.service;
+
+                import com.example.app.core.CoreClass;
+
+                public class MyService {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.app.service` cannot import from `com.example.app.core`")
+    }
+
+    @Test
+    fun `structuralCheck should pass valid imports with multi-segment package names`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.app.core"
+                - "com.example.app.service"
+                - "com.example.app.util"
+
+            rules:
+                "com.example.app.core":
+                    - "com.example.app.service"
+                    - "com.example.app.util"
+                "com.example.app.service":
+                    - "com.example.app.util"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/app/service/MyService.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.app.service;
+
+                import com.example.app.util.Helper;
+
+                public class MyService {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should allow imports within same multi-segment package`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.app.core"
+                - "com.example.app.service"
+                - "com.example.app.util"
+
+            rules:
+                "com.example.app.core":
+                    - "com.example.app.service"
+                    - "com.example.app.util"
+                "com.example.app.service":
+                    - "com.example.app.util"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/app/service/sub/Test.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.app.service.sub;
+
+                import com.example.app.service.MyService;
+
+                public class Test {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
 }
 
