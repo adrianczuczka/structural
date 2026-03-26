@@ -96,6 +96,7 @@ internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String,
         val node = violationsNodeList.item(i)
         if (node is Element) {
             val idParts = node.textContent.trim().split("$")
+            if (idParts.size < 5) continue
             val violation =
                 when (idParts.first()) {
                     "FileOnSameLevelAsPackages" ->

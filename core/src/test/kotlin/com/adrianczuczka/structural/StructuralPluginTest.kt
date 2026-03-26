@@ -811,5 +811,98 @@ class StructuralPluginTest {
 
         assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
     }
+
+    @Test
+    fun `structuralGenerateBaseline should produce a baseline file`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val baselineFile = File(testProjectDir, "baseline.xml")
+        assertThat(baselineFile.exists()).isTrue()
+        assertThat(baselineFile.readText()).contains("ForbiddenImport")
+    }
+
+    @Test
+    fun `structuralCheck should ignore violations present in baseline`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        // Generate baseline first
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        // Now check should pass because violations are baselined
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck round-trip - generate baseline then check passes`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        // Generate baseline
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val baselineFile = File(testProjectDir, "baseline.xml")
+        assertThat(baselineFile.exists()).isTrue()
+
+        // Check passes with baseline
+        val checkResult = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(checkResult.output).contains("All package imports follow the specified package rules")
+    }
 }
 
