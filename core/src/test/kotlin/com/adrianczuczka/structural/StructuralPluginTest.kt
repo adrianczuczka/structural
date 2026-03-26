@@ -23,6 +23,9 @@ class StructuralPluginTest {
             plugins {
                 id("com.adrianczuczka.structural")
             }
+            repositories {
+                mavenCentral()
+            }
             """
         )
         File(testProjectDir, "structural.yml").writeText(
@@ -233,7 +236,9 @@ class StructuralPluginTest {
             plugins {
                 id("com.adrianczuczka.structural")
             }
-            
+            repositories {
+                mavenCentral()
+            }
             structural {
                 config = "${'$'}rootDir/custom-structural.yml"
             }
@@ -295,6 +300,9 @@ class StructuralPluginTest {
         plugins {
             id("com.adrianczuczka.structural")
         }
+        repositories {
+            mavenCentral()
+        }
         """
         )
 
@@ -303,6 +311,9 @@ class StructuralPluginTest {
             """
         plugins {
             id("com.adrianczuczka.structural")
+        }
+        repositories {
+            mavenCentral()
         }
         """
         )
@@ -903,6 +914,31 @@ class StructuralPluginTest {
             .build()
 
         assertThat(checkResult.output).contains("All package imports follow the specified package rules")
+    }
+
+    @Test
+    fun `structuralCheck error message should include total violation count`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+                import com.example.test.OtherClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("2 import rule violation(s) detected in 1 file(s).")
     }
 }
 

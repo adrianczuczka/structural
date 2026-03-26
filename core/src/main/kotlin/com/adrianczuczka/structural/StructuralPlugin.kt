@@ -8,10 +8,6 @@ class StructuralPlugin : Plugin<Project> {
         val extension: StructuralExtension =
             project.extensions.create("structural", StructuralExtension::class.java)
 
-        if (project.repositories.isEmpty()) {
-            project.repositories.mavenCentral()
-        }
-
         val sourceFilesProvider = project.provider {
             project.fileTree(project.projectDir) {
                 include("**/src/main/kotlin/**/*.kt", "**/src/main/kotlin/**/*.java", "**/src/main/java/**/*.kt", "**/src/main/java/**/*.java")
@@ -32,32 +28,27 @@ class StructuralPlugin : Plugin<Project> {
             isCanBeConsumed = false
         }
 
-        project.tasks.register("structuralCheck", StructuralTask::class.java) {
-            group = "verification"
-            description = "Checks if packages satisfy specified architecture"
-
+        fun StructuralTask.configureTask(taskMode: String) {
             val defaultRulesPath = "${project.rootDir}/structural.yml"
             val defaultBaselinePath = "${project.rootDir}/baseline.xml"
 
-            mode.set("check")
+            mode.set(taskMode)
             sourceFiles.set(sourceFilesProvider)
             rulesPath.set(extension.config ?: defaultRulesPath)
             baselinePath.set(extension.baseline ?: defaultBaselinePath)
             kotlinCompiler.from(structuralConfiguration)
         }
 
+        project.tasks.register("structuralCheck", StructuralTask::class.java) {
+            group = "verification"
+            description = "Checks if packages satisfy specified architecture"
+            configureTask("check")
+        }
+
         project.tasks.register("structuralGenerateBaseline", StructuralTask::class.java) {
             group = "verification"
             description = "Generates baseline of package issues"
-
-            val defaultRulesPath = "${project.rootDir}/structural.yml"
-            val defaultBaselinePath = "${project.rootDir}/baseline.xml"
-
-            mode.set("baseline")
-            sourceFiles.set(sourceFilesProvider)
-            rulesPath.set(extension.config ?: defaultRulesPath)
-            baselinePath.set(extension.baseline ?: defaultBaselinePath)
-            kotlinCompiler.from(structuralConfiguration)
+            configureTask("baseline")
         }
     }
 

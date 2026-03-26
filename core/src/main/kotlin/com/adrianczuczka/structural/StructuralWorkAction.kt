@@ -172,14 +172,9 @@ private fun Map<File, List<ViolationData>>.report() {
                 println("\uD83D\uDEA8 $errorMessage")
             }
         }
+        val totalViolations = values.sumOf { it.size }
         throw GradleException(
-            "Import rule violations detected in $size ${
-                if (size == 1) {
-                    "file"
-                } else {
-                    "files"
-                }
-            }."
+            "$totalViolations import rule violation(s) detected in $size file(s)."
         )
     } else {
         println("✅ All package imports follow the specified package rules.")
