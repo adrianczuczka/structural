@@ -66,7 +66,7 @@ private fun checkForViolations(
                     if (multiSegmentMatch != null) {
                         // Multi-segment package matching (e.g. "com.example.app.service")
                         sourceFile.imports.forEach { import ->
-                            val importedPackage = extractPackageFromImport(import.importPath)
+                            val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
 
                             // Find which tracked multi-segment package the import belongs to (most specific wins)
                             val importedTrackedPackage = multiSegmentPackages
@@ -98,7 +98,7 @@ private fun checkForViolations(
 
                                 // Check each import in file for violations
                                 sourceFile.imports.forEach { import ->
-                                    val importedPackage = extractPackageFromImport(import.importPath)
+                                    val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
                                     val importedPackageParts = importedPackage.split(".")
                                     if (
                                         importedPackageParts.take(packagePathParts.size) == packagePathParts

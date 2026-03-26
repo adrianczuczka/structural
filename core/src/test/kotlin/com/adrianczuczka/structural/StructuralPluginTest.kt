@@ -583,7 +583,7 @@ class StructuralPluginTest {
             .withArguments("structuralCheck")
             .buildAndFail()
 
-        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data.SomeClass`")
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
     }
 
     @Test

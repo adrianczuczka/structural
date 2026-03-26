@@ -9,7 +9,8 @@ import javax.xml.parsers.DocumentBuilderFactory
 internal data class ParsedImport(
     val importPath: String,
     val lineNumber: Int,
-    val className: String?
+    val className: String?,
+    val isStatic: Boolean = false
 )
 
 internal data class ParsedSourceFile(
@@ -36,7 +37,7 @@ private fun File.parseKotlinSourceFile(): ParsedSourceFile {
 }
 
 private val PACKAGE_PATTERN = Regex("""^\s*package\s+([\w.]+)\s*;""")
-private val IMPORT_PATTERN = Regex("""^\s*import\s+(?:static\s+)?([\w.*]+)\s*;""")
+private val IMPORT_PATTERN = Regex("""^\s*import\s+(static\s+)?([\w.*]+)\s*;""")
 
 private fun File.parseJavaSourceFile(): ParsedSourceFile {
     val lines = readLines()
@@ -50,12 +51,14 @@ private fun File.parseJavaSourceFile(): ParsedSourceFile {
             }
         }
         IMPORT_PATTERN.find(line)?.let { match ->
-            val importPath = match.groupValues[1]
+            val isStatic = match.groupValues[1].isNotBlank()
+            val importPath = match.groupValues[2]
             imports.add(
                 ParsedImport(
                     importPath = importPath,
                     lineNumber = index + 1,
-                    className = importPath.split(".").last().takeIf { it != "*" }
+                    className = importPath.split(".").last().takeIf { it != "*" },
+                    isStatic = isStatic
                 )
             )
         }
@@ -67,9 +70,11 @@ private fun File.parseJavaSourceFile(): ParsedSourceFile {
     )
 }
 
-internal fun extractPackageFromImport(importPath: String): String {
+internal fun extractPackageFromImport(importPath: String, isStatic: Boolean = false): String {
     val parts = importPath.split(".")
-    return parts.dropLast(1).joinToString(".")
+    if (parts.size <= 1) return importPath
+    val dropCount = if (isStatic) 2 else 1
+    return parts.dropLast(dropCount.coerceAtMost(parts.size - 1)).joinToString(".")
 }
 
 internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String, List<ViolationData>> {
