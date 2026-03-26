@@ -53,6 +53,10 @@ fun File.parseYamlImportRules(): StructuralData? =
                         val parts = regex.split(rule).map { it.trim() }
                         val arrows = regex.findAll(rule).map { it.value }.toList()
 
+                        if (arrows.isEmpty() || parts.any { it.isBlank() }) {
+                            throw GradleException("Invalid rule format: '$rule'. Rules must contain <- or -> arrows.")
+                        }
+
                         arrows.forEachIndexed { index, arrow ->
                             val source = parts[index]
                             val target = parts[index + 1]
@@ -87,7 +91,7 @@ fun File.parseYamlImportRules(): StructuralData? =
                     }
                 }
             }
-            else -> println("⚠️ Warning: Invalid format in import-rules.yml")
+            else -> throw GradleException("Invalid rules format in config file. Rules must be a list of arrow rules or a map of package dependencies.")
         }
 
         StructuralData(

@@ -729,5 +729,87 @@ class StructuralPluginTest {
 
         assertThat(result.output).doesNotContain("cannot import")
     }
+
+    @Test
+    fun `structuralCheck should fail when a rule has no arrow`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+
+            rules:
+              - data
+            """
+        )
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("Invalid rule format: 'data'. Rules must contain <- or -> arrows.")
+    }
+
+    @Test
+    fun `structuralCheck should fail when rules is a string instead of a list or map`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+
+            rules: "some string"
+            """
+        )
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("Invalid rules format in config file. Rules must be a list of arrow rules or a map of package dependencies.")
+    }
+
+    @Test
+    fun `structuralCheck should work with map-based syntax and single-segment packages`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+              - ui
+
+            rules:
+              data:
+                - domain
+              ui:
+                - domain
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
+    }
 }
 
