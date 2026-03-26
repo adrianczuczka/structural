@@ -76,10 +76,11 @@ internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String,
     val file = File(baselinePath)
     if (!file.exists()) return emptyMap()
 
-    val document: Document =
-        DocumentBuilderFactory.newInstance()
-            .newDocumentBuilder()
-            .parse(file)
+    val factory = DocumentBuilderFactory.newInstance()
+    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+    factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+    factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+    val document: Document = factory.newDocumentBuilder().parse(file)
 
     document.documentElement.normalize()
 
