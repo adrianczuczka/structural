@@ -318,6 +318,21 @@ class StructuralPluginTest {
         """
         )
 
+        // Add structural.yml to moduleB
+        File(moduleB, "structural.yml").writeText(
+            """
+        packages:
+          - data
+          - domain
+          - ui
+          - test
+
+        rules:
+          - data <- domain -> ui
+          - test -> data
+        """
+        )
+
         // UI should be able to import from Data if they are in separate modules
         File(moduleB, "src/main/kotlin/com/example/ui/Test.kt").apply {
             parentFile.mkdirs()

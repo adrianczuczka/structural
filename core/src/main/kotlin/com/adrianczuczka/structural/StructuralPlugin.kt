@@ -29,13 +29,13 @@ class StructuralPlugin : Plugin<Project> {
         }
 
         fun StructuralTask.configureTask(taskMode: String) {
-            val defaultRulesPath = "${project.rootDir}/structural.yml"
-            val defaultBaselinePath = "${project.rootDir}/baseline.xml"
+            val defaultRulesPath = "${project.projectDir}/structural.yml"
+            val defaultBaselinePath = "${project.projectDir}/baseline.xml"
 
             mode.set(taskMode)
             sourceFiles.set(sourceFilesProvider)
-            rulesPath.set(extension.config ?: defaultRulesPath)
-            baselinePath.set(extension.baseline ?: defaultBaselinePath)
+            rulesPath.set(extension.config?.let { project.file(it).absolutePath } ?: defaultRulesPath)
+            baselinePath.set(extension.baseline?.let { project.file(it).absolutePath } ?: defaultBaselinePath)
             kotlinCompiler.from(structuralConfiguration)
         }
 
