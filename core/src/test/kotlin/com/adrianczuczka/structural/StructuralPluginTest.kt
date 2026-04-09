@@ -931,6 +931,478 @@ class StructuralPluginTest {
         assertThat(checkResult.output).contains("All package imports follow the specified package rules")
     }
 
+    // ===== Right arrow (-> ) direction tests =====
+
+    @Test
+    fun `structuralCheck should respect right arrow rule direction`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+              - ui
+
+            rules:
+              - domain -> data
+              - domain -> ui
+            """
+        )
+
+        // data can import from domain (domain -> data means data is allowed to import domain)
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                import com.example.domain.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should forbid reverse of right arrow direction`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+              - ui
+
+            rules:
+              - domain -> data
+            """
+        )
+
+        // domain cannot import from data (only data can import from domain)
+        File(testProjectDir, "src/main/kotlin/com/example/domain/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.domain
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.domain` cannot import from `com.example.data`")
+    }
+
+    // ===== Overlapping tracked packages =====
+
+    @Test
+    fun `structuralCheck should handle file matching multiple tracked package segments`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+              - ui
+
+            rules:
+              - data <- domain
+              - domain <- ui
+            """
+        )
+
+        // File in data.domain — both 'data' and 'domain' are tracked
+        File(testProjectDir, "src/main/kotlin/com/example/data/domain/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data.domain
+
+                import com.example.ui.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        // The 'data' layer doesn't allow ui, so this should fail
+        assertThat(result.output).contains("cannot import from `com.example.ui`")
+    }
+
+    // ===== Circular / bidirectional rules =====
+
+    @Test
+    fun `structuralCheck should allow circular rules`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - a
+              - b
+
+            rules:
+              - a <- b
+              - b <- a
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/a/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.a
+
+                import com.example.b.SomeClass
+
+                class Test
+                """
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/b/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.b
+
+                import com.example.a.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    // ===== Tracked package with zero rules =====
+
+    @Test
+    fun `structuralCheck should forbid all imports for tracked package with no rules`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+              - ui
+
+            rules:
+              - data <- domain
+            """
+        )
+
+        // ui has no rules — it should not be able to import from any tracked package
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
+    }
+
+    // ===== FileOnSameLevelAsPackages baseline integration =====
+
+    @Test
+    fun `structuralCheck should baseline FileOnSameLevelAsPackages violations`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                    package com.example.data
+
+                    import com.example.SameLevelClass
+
+                    class Test
+                    """
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/SameLevelClass.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                    package com.example
+
+                    class SameLevelClass
+                    """
+            )
+        }
+
+        // First verify it fails without baseline
+        val failResult = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(failResult.output).contains("is on the same level as")
+
+        // Generate baseline
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        // Now check should pass
+        val passResult = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(passResult.output).contains("All package imports follow the specified package rules")
+    }
+
+    // ===== New violations after baseline =====
+
+    @Test
+    fun `structuralCheck should fail for new violations even with baseline`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        // Generate baseline with existing violation
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        // Add a NEW file with a new violation
+        File(testProjectDir, "src/main/kotlin/com/example/ui/NewFile.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.AnotherClass
+
+                class NewFile
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.ui` cannot import from `com.example.data`")
+        // Should only report the new violation, not the baselined one
+        assertThat(result.output).contains("1 import rule violation(s) detected in 1 file(s).")
+    }
+
+    // ===== Custom baseline path =====
+
+    @Test
+    fun `structuralCheck should respect custom baseline path`() {
+        File(testProjectDir, "build.gradle.kts").delete()
+        File(testProjectDir, "build.gradle.kts").writeText(
+            """
+            plugins {
+                id("com.adrianczuczka.structural")
+            }
+            repositories {
+                mavenCentral()
+            }
+            structural {
+                baseline = "${'$'}rootDir/custom-baseline.xml"
+            }
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        // Generate baseline to custom path
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val customBaseline = File(testProjectDir, "custom-baseline.xml")
+        assertThat(customBaseline.exists()).isTrue()
+
+        // Check should pass with custom baseline
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    // ===== Same package imports =====
+
+    @Test
+    fun `structuralCheck should allow imports within the same package`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/TestA.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                import com.example.data.TestB
+
+                class TestA
+                """
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/data/TestB.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                class TestB
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    // ===== FileOnSameLevelAsPackages error message =====
+
+    @Test
+    fun `structuralCheck FileOnSameLevelAsPackages error message includes class name and package`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                    package com.example.data
+
+                    import com.example.RootClass
+
+                    class Test
+                    """
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/RootClass.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                    package com.example
+
+                    class RootClass
+                    """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("class \"RootClass\" is on the same level as \"com.example\" package")
+        assertThat(result.output).contains("Move into a package")
+    }
+
+    // ===== Mixed Java and Kotlin files =====
+
+    @Test
+    fun `structuralCheck should detect violations across Java and Kotlin files`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/KotlinFile.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class KotlinFile
+                """
+            )
+        }
+        File(testProjectDir, "src/main/java/com/example/ui/JavaFile.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui;
+
+                import com.example.data.SomeClass;
+
+                public class JavaFile {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("2 import rule violation(s) detected in 2 file(s).")
+    }
+
     @Test
     fun `structuralCheck error message should include total violation count`() {
         File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {

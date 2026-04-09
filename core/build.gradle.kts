@@ -93,6 +93,7 @@ dependencies {
     testImplementation("com.google.truth:truth:1.4.4")
     testImplementation(kotlin("test"))
     testImplementation(gradleTestKit())
+    testImplementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.1.0")
 }
 
 tasks.test {
