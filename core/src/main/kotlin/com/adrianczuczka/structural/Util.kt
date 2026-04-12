@@ -96,21 +96,19 @@ internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String,
         val node = violationsNodeList.item(i)
         if (node is Element) {
             val idParts = node.textContent.trim().split("$")
-            if (idParts.size < 5) continue
+            if (idParts.size < 4) continue
             val violation =
                 when (idParts.first()) {
                     "FileOnSameLevelAsPackages" ->
                         ViolationData.FileOnSameLevelAsPackages(
-                            lineNumber = idParts[2].toInt(),
-                            className = idParts[3],
-                            importedPackage = idParts[4]
+                            className = idParts[2],
+                            importedPackage = idParts[3]
                         )
 
                     "ForbiddenImport" ->
                         ViolationData.ForbiddenImport(
-                            lineNumber = idParts[2].toInt(),
-                            importingPackage = idParts[3],
-                            importedPackage = idParts[4]
+                            importingPackage = idParts[2],
+                            importPath = idParts[3]
                         )
 
                     else -> null

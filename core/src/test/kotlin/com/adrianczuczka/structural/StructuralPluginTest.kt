@@ -932,6 +932,135 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `structuralCheck baseline should not break when lines shift`() {
+        val testFile = File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        // Generate baseline with the violation
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        // Add a new import before the violation, shifting its line number
+        testFile.writeText(
+            """
+            package com.example.ui
+
+            import com.example.ui.SomeOtherClass
+            import com.example.data.SomeClass
+
+            class Test
+            """
+        )
+
+        // Check should still pass — the violation is the same despite the line shift
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).contains("All package imports follow the specified package rules")
+    }
+
+    @Test
+    fun `structuralGenerateBaseline should produce sorted deterministic output`() {
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Zebra.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.ZebraClass
+
+                class Zebra
+                """
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Alpha.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.AlphaClass
+
+                class Alpha
+                """
+            )
+        }
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val baselineFile = File(testProjectDir, "baseline.xml")
+        val content = baselineFile.readText()
+        val idPattern = Regex("<ID>(.*?)</ID>")
+        val ids = idPattern.findAll(content).map { it.groupValues[1] }.toList()
+
+        assertThat(ids).isEqualTo(ids.sorted())
+    }
+
+    @Test
+    fun `structuralCheck baseline should catch new imports from same forbidden package`() {
+        val testFile = File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        // Generate baseline with one violation
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        // Add a second import from the same forbidden package
+        testFile.writeText(
+            """
+            package com.example.ui
+
+            import com.example.data.SomeClass
+            import com.example.data.AnotherClass
+
+            class Test
+            """
+        )
+
+        // Check should fail — AnotherClass is a new violation not in the baseline
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("cannot import")
+    }
+
+    @Test
     fun `structuralCheck error message should include total violation count`() {
         File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
             parentFile.mkdirs()

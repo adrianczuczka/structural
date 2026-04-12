@@ -36,7 +36,7 @@ private fun checkForViolations(
     sourceFiles: Set<File>,
     rulesPath: String,
     ignoredViolations: Map<String, List<ViolationData>>
-): Map<File, List<ViolationData>> {
+): Map<File, List<ReportedViolation>> {
     val rulesFile = File(rulesPath)
     if (rulesFile.exists()) {
         val yaml = rulesFile.parseYamlImportRules()
@@ -45,7 +45,7 @@ private fun checkForViolations(
 
             println("📜 Allowed import rules loaded: $rules")
 
-            val violations = mutableMapOf<File, MutableList<ViolationData>>()
+            val violations = mutableMapOf<File, MutableList<ReportedViolation>>()
 
             val singleSegmentPackages = checkedPackages.filter { !it.contains(".") }.toSet()
             // Sort by length descending so the most specific package matches first
@@ -78,14 +78,14 @@ private fun checkForViolations(
                                 val allowedList = rules[multiSegmentMatch] ?: emptyList()
                                 if (importedTrackedPackage !in allowedList) {
                                     val violationData = ViolationData.ForbiddenImport(
-                                        lineNumber = import.lineNumber,
                                         importingPackage = packageName,
-                                        importedPackage = importedPackage
+                                        importPath = import.importPath
                                     )
                                     if (
                                         violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
                                     ) {
-                                        violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
+                                        violations.computeIfAbsent(file) { mutableListOf() }
+                                            .add(ReportedViolation(violationData, import.lineNumber, importedPackage))
                                     }
                                 }
                             }
@@ -108,7 +108,6 @@ private fun checkForViolations(
                                             import.className?.let { className ->
                                                 val violationData =
                                                     ViolationData.FileOnSameLevelAsPackages(
-                                                        lineNumber = import.lineNumber,
                                                         className = className,
                                                         importedPackage = importedPackage
                                                     )
@@ -116,7 +115,7 @@ private fun checkForViolations(
                                                     violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
                                                 ) {
                                                     violations.computeIfAbsent(file) { mutableListOf() }
-                                                        .add(violationData)
+                                                        .add(ReportedViolation(violationData, import.lineNumber, importedPackage))
                                                 }
                                             }
                                         } else {
@@ -127,9 +126,8 @@ private fun checkForViolations(
                                             val allowedList = rules[part] ?: emptyList()
 
                                             val violationData = ViolationData.ForbiddenImport(
-                                                lineNumber = import.lineNumber,
                                                 importingPackage = packageName,
-                                                importedPackage = importedPackage
+                                                importPath = import.importPath
                                             )
 
                                             if (
@@ -137,7 +135,8 @@ private fun checkForViolations(
                                                 importedLocalPackage !in allowedList &&
                                                 violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
                                             ) {
-                                                violations.computeIfAbsent(file) { mutableListOf() }.add(violationData)
+                                                violations.computeIfAbsent(file) { mutableListOf() }
+                                                    .add(ReportedViolation(violationData, import.lineNumber, importedPackage))
                                             }
                                         }
                                     }
@@ -156,18 +155,18 @@ private fun checkForViolations(
     }
 }
 
-private fun Map<File, List<ViolationData>>.report() {
+private fun Map<File, List<ReportedViolation>>.report() {
     if (isNotEmpty()) {
         println("\uD83D\uDEA8 Import rule violations found:")
-        entries.forEach { (file, violations) ->
-            violations.forEach { violation ->
+        entries.forEach { (file, reportedViolations) ->
+            reportedViolations.forEach { (violation, lineNumber, importedPackage) ->
                 val errorMessage =
                     when (violation) {
                         is ViolationData.FileOnSameLevelAsPackages ->
-                            "${file.absolutePath}:${violation.lineNumber} : `class \"${violation.className}\" is on the same level as \"${violation.importedPackage}\" package. Move into a package`"
+                            "${file.absolutePath}:$lineNumber : `class \"${violation.className}\" is on the same level as \"${violation.importedPackage}\" package. Move into a package`"
 
                         is ViolationData.ForbiddenImport ->
-                            "${file.absolutePath}:${violation.lineNumber} : `${violation.importingPackage}` cannot import from `${violation.importedPackage}`"
+                            "${file.absolutePath}:$lineNumber : `${violation.importingPackage}` cannot import from `$importedPackage`"
                     }
                 println("\uD83D\uDEA8 $errorMessage")
             }
@@ -181,41 +180,43 @@ private fun Map<File, List<ViolationData>>.report() {
     }
 }
 
+internal data class ReportedViolation(
+    val violation: ViolationData,
+    val lineNumber: Int,
+    val importedPackage: String
+)
+
 internal sealed class ViolationData {
     data class FileOnSameLevelAsPackages(
-        val lineNumber: Int,
         val className: String,
         val importedPackage: String
     ) : ViolationData()
 
     data class ForbiddenImport(
-        val lineNumber: Int,
         val importingPackage: String,
-        val importedPackage: String
+        val importPath: String
     ) : ViolationData()
 }
 
-private fun Map<File, List<ViolationData>>.generateBaseline(baselinePath: String) {
+private fun Map<File, List<ReportedViolation>>.generateBaseline(baselinePath: String) {
     val baselineEntries =
-        entries.map { (file, violations) ->
-            violations.map { violation ->
+        entries.flatMap { (file, reportedViolations) ->
+            reportedViolations.map { (violation, _, _) ->
                 when (violation) {
                     is ViolationData.FileOnSameLevelAsPackages ->
                         "FileOnSameLevelAsPackages" +
                                 "$${file.nameWithoutExtension}" +
-                                "$${violation.lineNumber}" +
                                 "$${violation.className}" +
                                 "$${violation.importedPackage}"
 
                     is ViolationData.ForbiddenImport ->
                         "ForbiddenImport" +
                                 "$${file.nameWithoutExtension}" +
-                                "$${violation.lineNumber}" +
                                 "$${violation.importingPackage}" +
-                                "$${violation.importedPackage}"
+                                "$${violation.importPath}"
                 }
             }
-        }.flatten()
+        }.distinct().sorted()
     File(baselinePath).writeText(
         BaselineData(baselineEntries).toXml()
     )
