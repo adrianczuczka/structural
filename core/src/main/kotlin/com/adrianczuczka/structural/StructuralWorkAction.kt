@@ -2,7 +2,9 @@ package com.adrianczuczka.structural
 
 import com.adrianczuczka.structural.baseline.BaselineData
 import com.adrianczuczka.structural.baseline.toXml
+import com.adrianczuczka.structural.yaml.TrackedPackage
 import com.adrianczuczka.structural.yaml.parseYamlImportRules
+import com.adrianczuczka.structural.yaml.specificity
 import org.gradle.api.GradleException
 import org.gradle.workers.WorkAction
 import java.io.File
@@ -47,9 +49,11 @@ private fun checkForViolations(
 
             val violations = mutableMapOf<File, MutableList<ReportedViolation>>()
 
-            val singleSegmentPackages = checkedPackages.filter { !it.contains(".") }.toSet()
-            // Sort by length descending so the most specific package matches first
-            val multiSegmentPackages = checkedPackages.filter { it.contains(".") }.sortedByDescending { it.length }
+            val singleSegmentPackages =
+                checkedPackages.filter { it.isSingleSegment }.map { it.pattern }.toSet()
+            // Most-specific first so literal tracked packages win over wildcards.
+            val multiSegmentTracked =
+                checkedPackages.filter { !it.isSingleSegment }.sortedByDescending { it.specificity() }
 
             sourceFiles.forEach { file ->
                 val sourceFile = file.parseSourceFile()
@@ -58,21 +62,14 @@ private fun checkForViolations(
                 if (packageName != null) {
                     val parts = packageName.split(".")
 
-                    // Try multi-segment match first (most specific wins)
-                    val multiSegmentMatch = multiSegmentPackages.find { trackedPackage ->
-                        packageName == trackedPackage || packageName.startsWith("$trackedPackage.")
-                    }
+                    val multiSegmentMatch = multiSegmentTracked.find { it.matches(packageName) }
 
                     if (multiSegmentMatch != null) {
-                        // Multi-segment package matching (e.g. "com.example.app.service")
                         sourceFile.imports.forEach { import ->
                             val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
 
-                            // Find which tracked multi-segment package the import belongs to (most specific wins)
-                            val importedTrackedPackage = multiSegmentPackages
-                                .find { tp ->
-                                    importedPackage == tp || importedPackage.startsWith("$tp.")
-                                }
+                            val importedTrackedPackage = multiSegmentTracked
+                                .find { it.matches(importedPackage) }
 
                             if (importedTrackedPackage != null && importedTrackedPackage != multiSegmentMatch) {
                                 val allowedList = rules[multiSegmentMatch] ?: emptyList()
@@ -96,14 +93,12 @@ private fun checkForViolations(
                             if (part in singleSegmentPackages) {
                                 val packagePathParts = parts.take(index)
 
-                                // Check each import in file for violations
                                 sourceFile.imports.forEach { import ->
                                     val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
                                     val importedPackageParts = importedPackage.split(".")
                                     if (
                                         importedPackageParts.take(packagePathParts.size) == packagePathParts
                                     ) {
-                                        // This means there's a file on the same level as the packages being checked. Disallow
                                         if (importedPackageParts.size == packagePathParts.size) {
                                             import.className?.let { className ->
                                                 val violationData =
@@ -123,7 +118,8 @@ private fun checkForViolations(
                                                 importedPackageParts
                                                     .drop(packagePathParts.size)
                                                     .first()
-                                            val allowedList = rules[part] ?: emptyList()
+                                            val allowedPatterns = (rules[TrackedPackage(part)] ?: emptyList())
+                                                .map { it.pattern }
 
                                             val violationData = ViolationData.ForbiddenImport(
                                                 importingPackage = packageName,
@@ -132,7 +128,7 @@ private fun checkForViolations(
 
                                             if (
                                                 importedLocalPackage != part &&
-                                                importedLocalPackage !in allowedList &&
+                                                importedLocalPackage !in allowedPatterns &&
                                                 violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
                                             ) {
                                                 violations.computeIfAbsent(file) { mutableListOf() }

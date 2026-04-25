@@ -29,18 +29,29 @@ import java.io.File
  *   data:
  *     - local
  *     - remote
+ *
+ * Package tokens accept Ant-style globs on multi-segment (fully-qualified)
+ * paths. See [parseTrackedPackage] for the supported grammar:
+ *   - bare `com.example` matches the path and any subpackage
+ *   - `com.example.**` is the explicit form of the above
+ *   - `com.example!` is an exact match (no subpackages)
+ *   - `com.*.api`, `com.**.internal` match with single- or multi-segment wildcards
+ *
+ * Single-segment tokens (like `data`) keep the legacy last-segment matching
+ * and cannot carry wildcards or `!`.
  */
 fun File.parseYamlImportRules(): StructuralData? =
     if (exists()) {
         val data: Map<String, Any> = Yaml().load(inputStream())
-        val allowedListPerPackage = mutableMapOf<String, MutableList<String>>()
-        val checkedPackages = (data["packages"] as? List<*>)?.filterIsInstance<String>()
+        val allowedListPerPackage = mutableMapOf<TrackedPackage, MutableList<TrackedPackage>>()
+        val rawCheckedPackages = (data["packages"] as? List<*>)?.filterIsInstance<String>()
         val rawRules = data["rules"] ?: throw GradleException("No rules specified in config file")
 
-        if (checkedPackages.isNullOrEmpty()) {
+        if (rawCheckedPackages.isNullOrEmpty()) {
             throw GradleException("No packages specified to check in config file")
         }
 
+        val checkedPackages = rawCheckedPackages.map { parseTrackedPackage(it) }
         checkedPackages.forEach {
             allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
         }
@@ -57,28 +68,19 @@ fun File.parseYamlImportRules(): StructuralData? =
                             throw GradleException("Invalid rule format: '$rule'. Rules must contain <- or -> arrows.")
                         }
 
+                        val parsedParts = parts.map { parseTrackedPackage(it) }
+
                         arrows.forEachIndexed { index, arrow ->
-                            val source = parts[index]
-                            val target = parts[index + 1]
-                            val key =
-                                if (arrow == "->") {
-                                    target
-                                } else {
-                                    source
-                                }
-                            val value =
-                                if (arrow == "->") {
-                                    source
-                                } else {
-                                    target
-                                }
+                            val source = parsedParts[index]
+                            val target = parsedParts[index + 1]
+                            val key = if (arrow == "->") target else source
+                            val value = if (arrow == "->") source else target
                             allowedListPerPackage.computeIfAbsent(key) { mutableListOf() } += value
                         }
                     }
                 }
             }
             is Map<*, *> -> {
-                // Process list-based syntax
                 rawRules.forEach { (key, value) ->
                     if (key is String && value is List<*>) {
                         allowedListPerPackage.addAllowedPackageToKeyIfPossible(key, value)
@@ -102,19 +104,23 @@ fun File.parseYamlImportRules(): StructuralData? =
         null
     }
 
-private fun MutableMap<String, MutableList<String>>.addAllowedPackageToKeyIfPossible(
+private fun MutableMap<TrackedPackage, MutableList<TrackedPackage>>.addAllowedPackageToKeyIfPossible(
     key: Any,
     value: Any,
 ) {
     if (key is String && value is List<*>) {
-        this[key] =
-            (getOrDefault(key, emptyList()) + value.filterIsInstance<String>())
+        val parsedKey = parseTrackedPackage(key)
+        val parsedValues = value
+            .filterIsInstance<String>()
+            .map { parseTrackedPackage(it) }
+        this[parsedKey] =
+            (getOrDefault(parsedKey, emptyList()) + parsedValues)
                 .distinct()
                 .toMutableList()
     }
 }
 
-data class StructuralData(
-    val checkedPackages: List<String>,
-    val rules: Map<String, List<String>>,
+data class StructuralData internal constructor(
+    internal val checkedPackages: List<TrackedPackage>,
+    internal val rules: Map<TrackedPackage, List<TrackedPackage>>,
 )

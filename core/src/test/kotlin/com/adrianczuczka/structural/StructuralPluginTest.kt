@@ -1084,5 +1084,243 @@ class StructuralPluginTest {
 
         assertThat(result.output).contains("2 import rule violation(s) detected in 1 file(s).")
     }
+
+    @Test
+    fun `structuralCheck should enforce exact match when package is suffixed with bang`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.api!"
+                - "com.example.impl"
+
+            rules:
+                - "com.example.api! -> com.example.impl"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/api/sub/Deep.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api.sub;
+
+                import com.example.impl.Hidden;
+
+                public class Deep {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should match exact package when suffixed with bang on importing side`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.api!"
+                - "com.example.impl!"
+
+            rules: []
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/api/Api.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api;
+
+                import com.example.impl.Hidden;
+
+                public class Api {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.api` cannot import from `com.example.impl`")
+    }
+
+    @Test
+    fun `structuralCheck should allow imports via explicit trailing double-star`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.api.**"
+                - "com.example.impl.**"
+
+            rules:
+                - "com.example.impl.** -> com.example.api.**"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/api/sub/Api.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api.sub;
+
+                import com.example.impl.deep.Hidden;
+
+                public class Api {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should honor single-star wildcard for direct children only`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.core"
+                - "com.example.*.plugin"
+
+            rules: []
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/core/Core.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.core;
+
+                import com.example.x.plugin.Plug;
+
+                public class Core {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.core` cannot import from `com.example.x.plugin`")
+    }
+
+    @Test
+    fun `structuralCheck should match mid-path double-star wildcard`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+                - "com.example.api"
+                - "com.**.internal"
+
+            rules: []
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/api/Api.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api;
+
+                import com.foo.bar.internal.Secret;
+
+                public class Api {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.api` cannot import from `com.foo.bar.internal`")
+    }
+
+    @Test
+    fun `structuralCheck should fail when using bang on single-segment token`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data!
+              - domain
+
+            rules:
+              - data! -> domain
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("data!")
+    }
+
+    @Test
+    fun `structuralCheck should fail when using wildcard on single-segment token`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - "data*"
+              - domain
+
+            rules:
+              - "data* -> domain"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("data*")
+    }
 }
 

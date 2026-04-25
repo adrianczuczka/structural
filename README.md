@@ -120,6 +120,50 @@ This works the same way as single-segment names — files in `com.example.app.se
 sub-packages) will be checked against `com.example.app.service`'s rules. When packages overlap,
 the most specific (longest) match takes priority.
 
+### Glob patterns
+
+For multi-segment (fully-qualified) package names, Structural supports Ant-style wildcards so you
+don't have to enumerate every subpackage by hand:
+
+| Pattern | Matches |
+| --- | --- |
+| `com.example.foo` | `com.example.foo` and any subpackage (the default) |
+| `com.example.foo.**` | same as above — explicit form, useful for readability |
+| `com.example.foo!` | **only** `com.example.foo`, no subpackages |
+| `com.example.*` | direct children of `com.example` only (`com.example.foo`, not `com.example.foo.bar`) |
+| `com.*.api` | any `com.X.api` where `X` is a single segment |
+| `com.**.internal` | any package under `com.` that ends in `.internal`, plus `com.internal` itself |
+| `**.private` | any package ending in `.private`, plus `private` itself |
+
+Rules:
+
+- `*` matches exactly one package segment.
+- `**` matches zero or more segments.
+- A trailing `!` means exact match and cannot be combined with wildcards.
+- Wildcards and `!` are only valid on multi-segment (dotted) tokens — they are rejected on
+  single-segment names like `data`.
+- Each side of an arrow rule is parsed independently, so `A! -> B.**` is valid.
+
+Example from the user-facing issue this feature was added for — letting everything under
+`dev.ionfusion.runtime` import from anything under `dev.ionfusion.runtime._private`:
+
+```yaml
+packages:
+  - dev.ionfusion.runtime._private
+  - dev.ionfusion.runtime
+
+rules:
+  - dev.ionfusion.runtime._private -> dev.ionfusion.runtime
+```
+
+And if you wanted to lock the relationship down to the exact packages only (no subpackages on
+either side):
+
+```yaml
+rules:
+  - dev.ionfusion.runtime._private! -> dev.ionfusion.runtime!
+```
+
 ### Run the check
 
 To check your project's package imports against the rules, run:
