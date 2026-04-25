@@ -65,8 +65,8 @@ deployer {
         auth.user.set(secret("MavenCentralUsername"))
         auth.password.set(secret("MavenCentralPassword"))
 
-        signing.key.set(secret("signing.key"))
-        signing.password.set(secret("signing.password"))
+        signing.key.set(secret("signingKey"))
+        signing.password.set(secret("signingPassword"))
 
         allowMavenCentralSync = false
     }

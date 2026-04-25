@@ -39,24 +39,10 @@ jobs:
       - name: Run tests
         run: ./gradlew :core:test
 
-      # signing.key / signing.password contain dots, so they can't be passed via
-      # ORG_GRADLE_PROJECT_* env vars. Inject them as project ext properties via
-      # an init script — findProperty() (and therefore the deployer's secret())
-      # picks them up.
-      - name: Configure signing properties
-        run: |
-          mkdir -p ~/.gradle
-          cat > ~/.gradle/init.gradle.kts <<'EOF'
-          gradle.beforeProject {
-              System.getenv("SIGNING_KEY")?.let { extra["signing.key"] = it }
-              System.getenv("SIGNING_PASSWORD")?.let { extra["signing.password"] = it }
-          }
-          EOF
-
       - name: Deploy to Maven Central Portal staging
         env:
           ORG_GRADLE_PROJECT_MavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_MavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
         run: ./gradlew :core:deployCentralPortal
