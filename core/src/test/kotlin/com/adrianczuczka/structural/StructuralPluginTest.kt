@@ -1776,6 +1776,194 @@ class StructuralPluginTest {
         assertThat(result.output).doesNotContain("cannot import")
     }
 
+    @Test
+    fun `class rule does not flip wildcard import`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.*
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("cannot import from `com.example.impl`")
+    }
+
+    @Test
+    fun `class rule does not match when file name differs from rule class name`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.ApiBuilder <- com.example.impl.**"
+            """
+        )
+
+        // File is named Api.kt but contains a class called ApiBuilder.
+        // Rule should NOT match because identity is by file name.
+        File(testProjectDir, "src/main/kotlin/com/example/api/Api.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.Helper
+
+                class ApiBuilder
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("cannot import from `com.example.impl`")
+    }
+
+    @Test
+    fun `map form is equivalent to arrow form`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              "com.example.api.**":
+                - com.example.impl.FusionException
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.FusionException
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `empty classes section preserves existing behaviour`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules:
+              - "com.example.api <- com.example.impl"
+
+            classes: []
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.Helper
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `colon escape grants lowercase trailing token like Kotlin top-level fun`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.:helperFun"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.helperFun
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
     // endregion
 }
 

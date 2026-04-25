@@ -171,6 +171,93 @@ rules:
   - dev.ionfusion.runtime._private! -> dev.ionfusion.runtime!
 ```
 
+### Class rules (additive)
+
+Sometimes a single class needs to cross a package boundary that the package rules deny — a shared
+exception type, a builder class, or a small handful of internals during a refactor. The optional
+top-level `classes:` section lets you grant those specific imports without loosening the
+package-level rules:
+
+```yaml
+packages:
+  - com.example.api
+  - com.example.impl
+
+rules: []   # api and impl cannot import each other by default
+
+classes:
+  - "com.example.api.** <- com.example.impl.FusionException"
+  - "com.example.api.ApiBuilder <- com.example.impl.**"
+  - "com.example.api.** <- com.example.impl._Private_*"
+  - "com.example.api.** <- com.example.impl.**._Private_*"
+```
+
+Class rules are **purely additive**: they can grant a cross-package import that package rules would
+otherwise reject. They cannot deny what package rules allow. (A future release may add a
+deny-exception form.)
+
+#### Token grammar
+
+Each side of a class rule is a token like `com.example.api.ApiBuilder`. The parser splits it into a
+**package portion** and an optional **class portion** using these rules, in priority order:
+
+1. A segment containing `*` (other than the whole-segment `*` and `**` package wildcards) is the
+   class-name segment. So `com.example.impl._Private_*` parses as package `com.example.impl`, class
+   `_Private_*`.
+2. Otherwise, the first segment whose first non-underscore character is uppercase is the class
+   name. So `com.example.api.ApiBuilder` parses as package `com.example.api`, class `ApiBuilder`.
+   `_PrivateClass` is recognised as a class because the first non-underscore character (`P`) is
+   uppercase.
+3. Otherwise (all-lowercase token), there is no class portion — the whole token is a package
+   pattern. So `com.example.api.**` is package=`com.example.api.**`, class=any.
+4. As an escape for the rare case of a lowercase class name (e.g. a Kotlin typealias or DSL
+   receiver), prefix the trailing segment with `:` to force it to be parsed as a class:
+   `com.example.api.:listOf` parses as package `com.example.api`, class `listOf`.
+
+The package portion uses the [glob grammar above](#glob-patterns); the class portion supports
+shell-style globs on a single identifier:
+
+| Class pattern | Matches |
+| --- | --- |
+| `Foo` | exact match (case-sensitive) |
+| `*Foo` | any name ending with `Foo` |
+| `Foo*` | any name starting with `Foo` |
+| `*Foo*` | any name containing `Foo` |
+| `*` | any non-empty class name |
+
+`**` is not a valid class-name pattern (class names are single identifiers); use the package
+portion's `**` for cross-subpackage matching.
+
+#### Map form
+
+Class rules also accept the same map form as `rules:` — the key is the importer:
+
+```yaml
+classes:
+  "com.example.api.**":
+    - com.example.impl.FusionException
+    - com.example.impl._Private_*
+  "com.example.api.ApiBuilder":
+    - com.example.impl.**
+```
+
+#### Known limitations
+
+- **Class identity is the file name.** Structural is file-scoped, so the importing class's identity
+  is the file's name without extension (e.g. `ApiBuilder.kt` ⇒ class `ApiBuilder`). A Kotlin file
+  named `Api.kt` that *declares* a class `ApiBuilder` will not match a rule referencing
+  `com.example.api.ApiBuilder` — name your file after the class you want to constrain.
+- **Wildcard imports cannot be granted by class rules.** `import com.foo.*` has no class name, so
+  class rules can't engage; the package-level decision applies.
+- **Static imports** (Java) are matched against the *enclosing class*. So
+  `import static com.foo.Util.LOG;` is granted by a rule referencing `com.foo.Util`, not one
+  referencing `com.foo.LOG`.
+- **Nested-class patterns are not supported.** A token like `com.example.Foo.Bar` is rejected at
+  parse time. A rule on `Foo` matches imports of `Foo.Bar` by simple name (`Bar`); use a class glob
+  on the imported side if you need that.
+- **Kotlin object members.** `import com.foo.MyObject.member` is matched by simple name (`member`),
+  not against the enclosing object — there's no `isStatic` flag in Kotlin to disambiguate.
+
 ### Run the check
 
 To check your project's package imports against the rules, run:
