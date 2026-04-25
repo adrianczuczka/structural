@@ -42,9 +42,72 @@ structural {
 
 If you omit this, it will look for a `structural.yml` file by default in the root directory.
 
-In your YAML file, there should be two main sections: `packages` and `rules`. `packages` should be a
-list of all package names that Structural should check. For example, if you follow MVVM and Clean
-Architecture rules, your list could look like this:
+In your YAML file, there should be two main sections: `packages` and `rules`. `packages` lists the
+package paths that Structural should check. For example, if you follow MVVM and Clean Architecture
+rules, your list could look like this:
+
+```yaml
+packages:
+  - com.example.app.local
+  - com.example.app.remote
+  - com.example.app.data
+  - com.example.app.domain
+  - com.example.app.ui
+```
+
+A bare path like `com.example.app.data` matches that path *and any of its subpackages* — so any
+file under `com.example.app.data.**` is governed by `com.example.app.data`'s rules. When several
+tracked packages match the same file, the most specific (longest) one wins.
+
+The `rules` section specifies which packages can import from which others. You can either use
+arrows:
+
+```yaml
+rules:
+  - com.example.app.data <- com.example.app.domain -> com.example.app.ui
+  - com.example.app.local <- com.example.app.data
+  - com.example.app.remote <- com.example.app.data
+```
+
+`A <- B` reads "`A` may be imported from `B`" (data flows from `B` to `A`); equivalently `B -> A`.
+
+So the rules above mean:
+
+1. `com.example.app.data` and `com.example.app.ui` can import from `com.example.app.domain`, but not vice versa.
+2. `com.example.app.local` and `com.example.app.remote` can import from `com.example.app.data`, but not vice versa.
+
+The same rules can be written as a map (key is the importer):
+
+```yaml
+rules:
+  com.example.app.ui:
+    - com.example.app.domain
+  com.example.app.data:
+    - com.example.app.domain
+  com.example.app.local:
+    - com.example.app.data
+  com.example.app.remote:
+    - com.example.app.data
+```
+
+YAML composite keys also work for grouping importers that share the same allowlist:
+
+```yaml
+rules:
+  ? [ com.example.app.ui, com.example.app.data ]
+    :
+    - com.example.app.domain
+
+  ? [ com.example.app.local, com.example.app.remote ]
+    :
+    - com.example.app.data
+```
+
+### Single-segment shorthand
+
+If your project's structure is simple enough, you can use single-segment names. Single-segment
+tokens (no dots) are matched by *last segment only* — so a token of `data` matches any file whose
+package ends in `.data` regardless of the prefix:
 
 ```yaml
 packages:
@@ -53,72 +116,16 @@ packages:
   - data
   - domain
   - ui
-```
 
-These are all the packages that will have rules related to which ones can import from which others.
-
-The `rules` section should specify the rules which govern the package structure. There are two ways
-to write these rules. You can either use arrows to specify the relationships, like this:
-
-```yaml
 rules:
   - data <- domain -> ui
   - local <- data
   - remote <- data
 ```
 
-This means that
-
-1. The `data` and `ui` folders can import from the `domain` folder, but not vice versa
-2. The `local` and `remote` folders can import from the `data` folder, but not vice versa
-
-The same rules can also be written like this:
-
-```yaml
-rules:
-
-  # YAML lists are supported
-  ? [ ui, data ]
-    :
-    - domain
-
-  ? [ local, remote ]
-    :
-    - data
-
-  # Also works
-  ui:
-    - domain
-  data:
-    - domain
-  local:
-    - data
-  remote:
-    - data
-```
-
-### Multi-segment package names
-
-If your project uses packages that share common prefixes and can't be distinguished by a single
-segment, you can use full dotted package names instead:
-
-```yaml
-packages:
-  - "com.example.app.core"
-  - "com.example.app.service"
-  - "com.example.app.util"
-
-rules:
-  "com.example.app.core":
-    - "com.example.app.service"
-    - "com.example.app.util"
-  "com.example.app.service":
-    - "com.example.app.util"
-```
-
-This works the same way as single-segment names — files in `com.example.app.service` (and its
-sub-packages) will be checked against `com.example.app.service`'s rules. When packages overlap,
-the most specific (longest) match takes priority.
+Single-segment shorthand cannot use wildcards or `!`. If two packages in your project share the
+same last segment (for instance `app1.data` and `app2.data`), use the multi-segment form so the
+plugin can tell them apart.
 
 ### Glob patterns
 
