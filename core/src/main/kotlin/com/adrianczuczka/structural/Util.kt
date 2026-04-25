@@ -77,6 +77,23 @@ internal fun extractPackageFromImport(importPath: String, isStatic: Boolean = fa
     return parts.dropLast(dropCount.coerceAtMost(parts.size - 1)).joinToString(".")
 }
 
+/**
+ * The class name to match against class rules for a given import. For regular
+ * imports this is the imported class itself; for Java static imports it's the
+ * *enclosing* class (so `import static com.foo.Util.LOG` is matched as `Util`,
+ * not `LOG`). Returns null for wildcard imports.
+ */
+internal fun extractEnclosingClassFromImport(
+    importPath: String,
+    className: String?,
+    isStatic: Boolean,
+): String? {
+    if (className == null) return null
+    if (!isStatic) return className
+    val parts = importPath.split(".")
+    return parts.getOrNull(parts.size - 2)
+}
+
 internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String, List<ViolationData>> {
     val file = File(baselinePath)
     if (!file.exists()) return emptyMap()

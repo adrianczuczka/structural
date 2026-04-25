@@ -1322,5 +1322,245 @@ class StructuralPluginTest {
 
         assertThat(result.output).contains("data*")
     }
+
+    // region: class rules
+
+    @Test
+    fun `class rule grants single-class import in Kotlin`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.FusionException
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `class rule allows only the specified class not other classes in the same package`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.OtherException
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("cannot import from `com.example.impl`")
+    }
+
+    @Test
+    fun `class rule grants single-class import in Java`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/api/Caller.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api;
+
+                import com.example.impl.FusionException;
+
+                public class Caller {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `importer-class restriction limits which file gets permission`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.ApiBuilder <- com.example.impl.**"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/ApiBuilder.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.Helper
+
+                class ApiBuilder
+                """.trimIndent()
+            )
+        }
+        File(testProjectDir, "src/main/kotlin/com/example/api/OtherApi.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.Helper
+
+                class OtherApi
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        // OtherApi.kt should be flagged but ApiBuilder.kt should not
+        assertThat(result.output).contains("OtherApi.kt")
+        assertThat(result.output).contains("1 import rule violation(s) detected in 1 file(s)")
+    }
+
+    @Test
+    fun `class rule matches Java static import via enclosing class`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.Util"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/com/example/api/Caller.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api;
+
+                import static com.example.impl.Util.LOG;
+
+                public class Caller {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `same-package imports remain auto-allowed regardless of class rules`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.app
+
+            rules: []
+
+            classes:
+              - "com.example.app.api.ApiBuilder <- com.example.app.impl.**"
+            """
+        )
+
+        // File in subpackage importing from sibling subpackage — same tracked package hierarchy
+        File(testProjectDir, "src/main/kotlin/com/example/app/api/Foo.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.app.api
+
+                import com.example.app.impl.Bar
+
+                class Foo
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    // endregion
 }
 

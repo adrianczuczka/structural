@@ -18,7 +18,28 @@ internal data class ClassRuleToken(
 internal data class ClassRule(
     val importer: ClassRuleToken,
     val imported: ClassRuleToken,
-)
+) {
+    /**
+     * True if the given file (its package + simple-name) and import (its
+     * imported package + class name) is granted by this class rule.
+     *
+     * `null` class patterns mean "any class name" — they trivially match.
+     * Imports without a class name (wildcard imports) cannot be granted by
+     * class rules and the caller is expected to short-circuit before calling.
+     */
+    fun matches(
+        importerPackage: String,
+        importerClassName: String,
+        importedPackage: String,
+        importedClassName: String,
+    ): Boolean {
+        if (!importer.packagePattern.matches(importerPackage)) return false
+        if (importer.classPattern?.matches(importerClassName) == false) return false
+        if (!imported.packagePattern.matches(importedPackage)) return false
+        if (imported.classPattern?.matches(importedClassName) == false) return false
+        return true
+    }
+}
 
 /**
  * Parses a class-rule token using the disambiguation rule:
@@ -106,23 +127,3 @@ private fun isClassSegment(seg: String): Boolean {
     return firstNonUnderscore.isUpperCase()
 }
 
-/**
- * True if the given file (its package + simple-name) and import (its imported
- * package + class name) is granted by this class rule.
- *
- * `null` class patterns mean "any class name" — they trivially match.
- * Imports without a class name (wildcard imports) cannot be granted by class
- * rules and the caller is expected to short-circuit before calling this.
- */
-internal fun ClassRule.matches(
-    importerPackage: String,
-    importerClassName: String,
-    importedPackage: String,
-    importedClassName: String,
-): Boolean {
-    if (!importer.packagePattern.matches(importerPackage)) return false
-    if (importer.classPattern?.matches(importerClassName) == false) return false
-    if (!imported.packagePattern.matches(importedPackage)) return false
-    if (imported.classPattern?.matches(importedClassName) == false) return false
-    return true
-}

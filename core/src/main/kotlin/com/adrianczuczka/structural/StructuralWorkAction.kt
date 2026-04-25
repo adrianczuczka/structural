@@ -2,6 +2,7 @@ package com.adrianczuczka.structural
 
 import com.adrianczuczka.structural.baseline.BaselineData
 import com.adrianczuczka.structural.baseline.toXml
+import com.adrianczuczka.structural.yaml.ClassRule
 import com.adrianczuczka.structural.yaml.TrackedPackage
 import com.adrianczuczka.structural.yaml.parseYamlImportRules
 import com.adrianczuczka.structural.yaml.specificity
@@ -46,9 +47,12 @@ private fun checkForViolations(
     val yaml = rulesFile.parseYamlImportRules()
         ?: throw GradleException("Could not parse config file")
 
-    val (checkedPackages, rules) = yaml
+    val (checkedPackages, rules, classRules) = yaml
 
     println("📜 Allowed import rules loaded: $rules")
+    if (classRules.isNotEmpty()) {
+        println("📜 Class rules loaded: ${classRules.size} rule(s)")
+    }
 
     val violations = mutableMapOf<File, MutableList<ReportedViolation>>()
 
@@ -72,6 +76,7 @@ private fun checkForViolations(
                     multiSegmentMatch = multiSegmentMatch,
                     multiSegmentTracked = multiSegmentTracked,
                     rules = rules,
+                    classRules = classRules,
                     ignoredViolations = ignoredViolations,
                 )
             }
@@ -88,6 +93,7 @@ private fun checkForViolations(
                             trackedPart = part,
                             packagePathParts = packagePathParts,
                             rules = rules,
+                            classRules = classRules,
                             ignoredViolations = ignoredViolations,
                         )
                     }
@@ -105,6 +111,7 @@ private fun MutableMap<File, MutableList<ReportedViolation>>.checkMultiSegmentIm
     multiSegmentMatch: TrackedPackage,
     multiSegmentTracked: List<TrackedPackage>,
     rules: Map<TrackedPackage, List<TrackedPackage>>,
+    classRules: List<ClassRule>,
     ignoredViolations: Map<String, List<ViolationData>>,
 ) {
     val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
@@ -113,6 +120,8 @@ private fun MutableMap<File, MutableList<ReportedViolation>>.checkMultiSegmentIm
 
     val allowedList = rules[multiSegmentMatch] ?: emptyList()
     if (importedTrackedPackage in allowedList) return
+
+    if (isClassRuleGranted(file, packageName, import, importedPackage, classRules)) return
 
     recordIfNotIgnored(
         file = file,
@@ -133,6 +142,7 @@ private fun MutableMap<File, MutableList<ReportedViolation>>.checkSingleSegmentI
     trackedPart: String,
     packagePathParts: List<String>,
     rules: Map<TrackedPackage, List<TrackedPackage>>,
+    classRules: List<ClassRule>,
     ignoredViolations: Map<String, List<ViolationData>>,
 ) {
     val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
@@ -159,6 +169,8 @@ private fun MutableMap<File, MutableList<ReportedViolation>>.checkSingleSegmentI
 
     val allowedPatterns = (rules[TrackedPackage(trackedPart)] ?: emptyList()).map { it.pattern }
     if (importedLocalPackage in allowedPatterns) return
+
+    if (isClassRuleGranted(file, packageName, import, importedPackage, classRules)) return
 
     recordIfNotIgnored(
         file = file,
