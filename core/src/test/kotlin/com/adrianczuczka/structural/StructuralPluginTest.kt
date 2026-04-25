@@ -1525,6 +1525,221 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `class-name glob matches imports starting with prefix`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl._Private_*"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl._Private_Helper
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `class-name glob does not match classes outside the prefix`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl._Private_*"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.PublicHelper
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("cannot import from `com.example.impl`")
+    }
+
+    @Test
+    fun `class rule across deep subpackages matches`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.**._Private_*"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.deep._Private_X
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `class rule cannot deny what package rule allows`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules:
+              - "com.example.api <- com.example.impl"
+
+            classes:
+              - "com.example.api.** <- com.example.impl.OnlyThisOne"
+            """
+        )
+
+        // Package rule already allows api <- impl. Class rule mentioning a specific
+        // class should NOT restrict the package rule.
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.SomeOtherClass
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `baseline coexists with class rules`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - com.example.api
+              - com.example.impl
+
+            rules: []
+
+            classes:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        )
+
+        // First file: granted by class rule (no violation)
+        File(testProjectDir, "src/main/kotlin/com/example/api/Caller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.FusionException
+
+                class Caller
+                """.trimIndent()
+            )
+        }
+        // Second file: NOT granted by class rule, will be in baseline
+        File(testProjectDir, "src/main/kotlin/com/example/api/OtherCaller.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.api
+
+                import com.example.impl.OtherClass
+
+                class OtherCaller
+                """.trimIndent()
+            )
+        }
+
+        // Generate baseline — should record only the un-granted import
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val baselineFile = File(testProjectDir, "baseline.xml")
+        assertThat(baselineFile.exists()).isTrue()
+        assertThat(baselineFile.readText()).contains("OtherClass")
+        assertThat(baselineFile.readText()).doesNotContain("FusionException")
+
+        // structuralCheck against the baseline should now pass
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
     fun `same-package imports remain auto-allowed regardless of class rules`() {
         File(testProjectDir, "structural.yml").writeText(
             """
