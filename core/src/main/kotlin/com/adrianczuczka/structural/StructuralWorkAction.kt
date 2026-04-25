@@ -40,120 +40,153 @@ private fun checkForViolations(
     ignoredViolations: Map<String, List<ViolationData>>
 ): Map<File, List<ReportedViolation>> {
     val rulesFile = File(rulesPath)
-    if (rulesFile.exists()) {
-        val yaml = rulesFile.parseYamlImportRules()
-        if (yaml != null) {
-            val (checkedPackages, rules) = yaml
+    if (!rulesFile.exists()) {
+        throw GradleException("Could not find config file")
+    }
+    val yaml = rulesFile.parseYamlImportRules()
+        ?: throw GradleException("Could not parse config file")
 
-            println("📜 Allowed import rules loaded: $rules")
+    val (checkedPackages, rules) = yaml
 
-            val violations = mutableMapOf<File, MutableList<ReportedViolation>>()
+    println("📜 Allowed import rules loaded: $rules")
 
-            val singleSegmentPackages =
-                checkedPackages.filter { it.isSingleSegment }.map { it.pattern }.toSet()
-            // Most-specific first so literal tracked packages win over wildcards.
-            val multiSegmentTracked =
-                checkedPackages.filter { !it.isSingleSegment }.sortedByDescending { it.specificity() }
+    val violations = mutableMapOf<File, MutableList<ReportedViolation>>()
 
-            sourceFiles.forEach { file ->
-                val sourceFile = file.parseSourceFile()
-                val packageName = sourceFile.packageName
+    val singleSegmentPackages =
+        checkedPackages.filter { it.isSingleSegment }.map { it.pattern }.toSet()
+    // Most-specific first so literal tracked packages win over wildcards.
+    val multiSegmentTracked =
+        checkedPackages.filter { !it.isSingleSegment }.sortedByDescending { it.specificity() }
 
-                if (packageName != null) {
-                    val parts = packageName.split(".")
+    sourceFiles.forEach { file ->
+        val sourceFile = file.parseSourceFile()
+        val packageName = sourceFile.packageName ?: return@forEach
+        val multiSegmentMatch = multiSegmentTracked.find { it.matches(packageName) }
 
-                    val multiSegmentMatch = multiSegmentTracked.find { it.matches(packageName) }
-
-                    if (multiSegmentMatch != null) {
-                        sourceFile.imports.forEach { import ->
-                            val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
-
-                            val importedTrackedPackage = multiSegmentTracked
-                                .find { it.matches(importedPackage) }
-
-                            if (importedTrackedPackage != null && importedTrackedPackage != multiSegmentMatch) {
-                                val allowedList = rules[multiSegmentMatch] ?: emptyList()
-                                if (importedTrackedPackage !in allowedList) {
-                                    val violationData = ViolationData.ForbiddenImport(
-                                        importingPackage = packageName,
-                                        importPath = import.importPath
-                                    )
-                                    if (
-                                        violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
-                                    ) {
-                                        violations.computeIfAbsent(file) { mutableListOf() }
-                                            .add(ReportedViolation(violationData, import.lineNumber, importedPackage))
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // Single-segment package matching (e.g. "data", "domain", "ui")
-                        parts.forEachIndexed { index, part ->
-                            if (part in singleSegmentPackages) {
-                                val packagePathParts = parts.take(index)
-
-                                sourceFile.imports.forEach { import ->
-                                    val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
-                                    val importedPackageParts = importedPackage.split(".")
-                                    if (
-                                        importedPackageParts.take(packagePathParts.size) == packagePathParts
-                                    ) {
-                                        if (importedPackageParts.size == packagePathParts.size) {
-                                            import.className?.let { className ->
-                                                val violationData =
-                                                    ViolationData.FileOnSameLevelAsPackages(
-                                                        className = className,
-                                                        importedPackage = importedPackage
-                                                    )
-                                                if (
-                                                    violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
-                                                ) {
-                                                    violations.computeIfAbsent(file) { mutableListOf() }
-                                                        .add(ReportedViolation(violationData, import.lineNumber, importedPackage))
-                                                }
-                                            }
-                                        } else {
-                                            val importedLocalPackage =
-                                                importedPackageParts
-                                                    .drop(packagePathParts.size)
-                                                    .first()
-                                            val allowedPatterns = (rules[TrackedPackage(part)] ?: emptyList())
-                                                .map { it.pattern }
-
-                                            val violationData = ViolationData.ForbiddenImport(
-                                                importingPackage = packageName,
-                                                importPath = import.importPath
-                                            )
-
-                                            if (
-                                                importedLocalPackage != part &&
-                                                importedLocalPackage !in allowedPatterns &&
-                                                violationData !in ignoredViolations[file.nameWithoutExtension].orEmpty()
-                                            ) {
-                                                violations.computeIfAbsent(file) { mutableListOf() }
-                                                    .add(ReportedViolation(violationData, import.lineNumber, importedPackage))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        if (multiSegmentMatch != null) {
+            sourceFile.imports.forEach { import ->
+                violations.checkMultiSegmentImport(
+                    file = file,
+                    packageName = packageName,
+                    import = import,
+                    multiSegmentMatch = multiSegmentMatch,
+                    multiSegmentTracked = multiSegmentTracked,
+                    rules = rules,
+                    ignoredViolations = ignoredViolations,
+                )
+            }
+        } else {
+            val parts = packageName.split(".")
+            parts.forEachIndexed { index, part ->
+                if (part in singleSegmentPackages) {
+                    val packagePathParts = parts.take(index)
+                    sourceFile.imports.forEach { import ->
+                        violations.checkSingleSegmentImport(
+                            file = file,
+                            packageName = packageName,
+                            import = import,
+                            trackedPart = part,
+                            packagePathParts = packagePathParts,
+                            rules = rules,
+                            ignoredViolations = ignoredViolations,
+                        )
                     }
                 }
             }
-            return violations
-        } else {
-            throw GradleException("Could not parse config file")
         }
-    } else {
-        throw GradleException("Could not find config file")
     }
+    return violations
+}
+
+private fun MutableMap<File, MutableList<ReportedViolation>>.checkMultiSegmentImport(
+    file: File,
+    packageName: String,
+    import: ParsedImport,
+    multiSegmentMatch: TrackedPackage,
+    multiSegmentTracked: List<TrackedPackage>,
+    rules: Map<TrackedPackage, List<TrackedPackage>>,
+    ignoredViolations: Map<String, List<ViolationData>>,
+) {
+    val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
+    val importedTrackedPackage = multiSegmentTracked.find { it.matches(importedPackage) } ?: return
+    if (importedTrackedPackage == multiSegmentMatch) return
+
+    val allowedList = rules[multiSegmentMatch] ?: emptyList()
+    if (importedTrackedPackage in allowedList) return
+
+    recordIfNotIgnored(
+        file = file,
+        violationData = ViolationData.ForbiddenImport(
+            importingPackage = packageName,
+            importPath = import.importPath,
+        ),
+        lineNumber = import.lineNumber,
+        importedPackage = importedPackage,
+        ignoredViolations = ignoredViolations,
+    )
+}
+
+private fun MutableMap<File, MutableList<ReportedViolation>>.checkSingleSegmentImport(
+    file: File,
+    packageName: String,
+    import: ParsedImport,
+    trackedPart: String,
+    packagePathParts: List<String>,
+    rules: Map<TrackedPackage, List<TrackedPackage>>,
+    ignoredViolations: Map<String, List<ViolationData>>,
+) {
+    val importedPackage = extractPackageFromImport(import.importPath, import.isStatic)
+    val importedPackageParts = importedPackage.split(".")
+    if (importedPackageParts.take(packagePathParts.size) != packagePathParts) return
+
+    if (importedPackageParts.size == packagePathParts.size) {
+        val className = import.className ?: return
+        recordIfNotIgnored(
+            file = file,
+            violationData = ViolationData.FileOnSameLevelAsPackages(
+                className = className,
+                importedPackage = importedPackage,
+            ),
+            lineNumber = import.lineNumber,
+            importedPackage = importedPackage,
+            ignoredViolations = ignoredViolations,
+        )
+        return
+    }
+
+    val importedLocalPackage = importedPackageParts.drop(packagePathParts.size).first()
+    if (importedLocalPackage == trackedPart) return
+
+    val allowedPatterns = (rules[TrackedPackage(trackedPart)] ?: emptyList()).map { it.pattern }
+    if (importedLocalPackage in allowedPatterns) return
+
+    recordIfNotIgnored(
+        file = file,
+        violationData = ViolationData.ForbiddenImport(
+            importingPackage = packageName,
+            importPath = import.importPath,
+        ),
+        lineNumber = import.lineNumber,
+        importedPackage = importedPackage,
+        ignoredViolations = ignoredViolations,
+    )
+}
+
+private fun MutableMap<File, MutableList<ReportedViolation>>.recordIfNotIgnored(
+    file: File,
+    violationData: ViolationData,
+    lineNumber: Int,
+    importedPackage: String,
+    ignoredViolations: Map<String, List<ViolationData>>,
+) {
+    if (violationData in ignoredViolations[file.nameWithoutExtension].orEmpty()) return
+    computeIfAbsent(file) { mutableListOf() }
+        .add(ReportedViolation(violationData, lineNumber, importedPackage))
 }
 
 private fun Map<File, List<ReportedViolation>>.report() {
     if (isNotEmpty()) {
-        println("\uD83D\uDEA8 Import rule violations found:")
+        println("🚨 Import rule violations found:")
         entries.forEach { (file, reportedViolations) ->
             reportedViolations.forEach { (violation, lineNumber, importedPackage) ->
                 val errorMessage =
@@ -164,7 +197,7 @@ private fun Map<File, List<ReportedViolation>>.report() {
                         is ViolationData.ForbiddenImport ->
                             "${file.absolutePath}:$lineNumber : `${violation.importingPackage}` cannot import from `$importedPackage`"
                     }
-                println("\uD83D\uDEA8 $errorMessage")
+                println("🚨 $errorMessage")
             }
         }
         val totalViolations = values.sumOf { it.size }
@@ -174,24 +207,6 @@ private fun Map<File, List<ReportedViolation>>.report() {
     } else {
         println("✅ All package imports follow the specified package rules.")
     }
-}
-
-internal data class ReportedViolation(
-    val violation: ViolationData,
-    val lineNumber: Int,
-    val importedPackage: String
-)
-
-internal sealed class ViolationData {
-    data class FileOnSameLevelAsPackages(
-        val className: String,
-        val importedPackage: String
-    ) : ViolationData()
-
-    data class ForbiddenImport(
-        val importingPackage: String,
-        val importPath: String
-    ) : ViolationData()
 }
 
 private fun Map<File, List<ReportedViolation>>.generateBaseline(baselinePath: String) {
