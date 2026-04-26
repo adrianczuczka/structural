@@ -45,4 +45,4 @@ jobs:
           ORG_GRADLE_PROJECT_MavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
-        run: ./gradlew :core:deployCentralPortal
+        run: ./gradlew :core:deployCentralPortal --stacktrace
