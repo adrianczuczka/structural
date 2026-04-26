@@ -6,13 +6,13 @@
 
 ![title image](images/readme_title_image.png)
 
-A small Gradle plugin that keeps your packages from importing each other in ways you didn't intend.
+A small Gradle plugin for enforcing architectural boundaries between your packages — Clean
+Architecture, MVVM, hexagonal, or whatever convention your project follows.
 
-You write a YAML file describing which packages are allowed to import from which, and Structural
+You write a YAML file describing which layers are allowed to import from which, and Structural
 fails the build when something crosses a line. It works on Kotlin and Java sources and doesn't
-require splitting your project into separate Gradle modules — useful if you want a Clean
-Architecture-style boundary without the ceremony, or just want to stop one package from reaching
-into another.
+require splitting your project into separate Gradle modules — useful when you want the boundaries
+without the ceremony, or just want to stop one package from reaching into another.
 
 Want to see it in action? The `kotlin-test-app/` and `java-test-app/` directories in this repo are
 runnable examples (with intentional violations) that you can poke at.
@@ -65,73 +65,9 @@ structural {
 }
 ```
 
-The config has two main sections: `packages` (what to watch) and `rules` (what's allowed). A typical
-Clean Architecture / MVVM layout might look like this:
-
-```yaml
-packages:
-  - com.example.app.local
-  - com.example.app.remote
-  - com.example.app.data
-  - com.example.app.domain
-  - com.example.app.ui
-```
-
-A bare path like `com.example.app.data` matches that path *and any of its subpackages*, so anything
-under `com.example.app.data.**` lives by `com.example.app.data`'s rules. When more than one tracked
-package matches a file, the longest match wins.
-
-The `rules` section is where you say who can import from whom. The arrow form reads naturally for
-short rule sets:
-
-```yaml
-rules:
-  - com.example.app.data <- com.example.app.domain -> com.example.app.ui
-  - com.example.app.local <- com.example.app.data
-  - com.example.app.remote <- com.example.app.data
-```
-
-`A <- B` reads "`A` may be imported from `B`" (data flows from `B` into `A`); `B -> A` means the
-same thing. So the rules above say:
-
-1. `com.example.app.data` and `com.example.app.ui` can import from `com.example.app.domain`, but
-   not the other way around.
-2. `com.example.app.local` and `com.example.app.remote` can import from `com.example.app.data`,
-   but not the other way around.
-
-Once you have more than a handful of rules the arrow form gets noisy, and you'll probably want the
-map form. The key is the importer:
-
-```yaml
-rules:
-  com.example.app.ui:
-    - com.example.app.domain
-  com.example.app.data:
-    - com.example.app.domain
-  com.example.app.local:
-    - com.example.app.data
-  com.example.app.remote:
-    - com.example.app.data
-```
-
-If a bunch of packages share the same allowlist, YAML composite keys let you group them:
-
-```yaml
-rules:
-  ? [ com.example.app.ui, com.example.app.data ]
-    :
-    - com.example.app.domain
-
-  ? [ com.example.app.local, com.example.app.remote ]
-    :
-    - com.example.app.data
-```
-
-### Single-segment shorthand
-
-For simpler projects, you can skip the fully-qualified package paths and just use the last segment.
-A token like `data` (no dots) matches any file whose package *ends* in `.data`, regardless of what
-comes before it:
+The config has two main sections: `packages` (the layers you want to enforce) and `rules` (which
+layers may import from which). For most projects, naming the layers by their last segment is all
+you need:
 
 ```yaml
 packages:
@@ -140,16 +76,80 @@ packages:
   - data
   - domain
   - ui
+```
 
+A token like `data` (no dots) matches every file whose package *ends* in `.data` — for example
+`com.example.app.data` and everything beneath it. That's almost always what you want for an
+architectural rule like "nothing in `ui` may touch `data` directly."
+
+The `rules` section is where you say who can import from whom. The arrow form reads naturally for
+short rule sets:
+
+```yaml
 rules:
   - data <- domain -> ui
   - local <- data
   - remote <- data
 ```
 
-Wildcards and `!` aren't allowed on single-segment names. And if two packages in your project
-share the same last segment (say `app1.data` and `app2.data`), the shorthand can't tell them apart
-— write them out in full instead.
+`A <- B` reads "`A` may be imported from `B`" (data flows from `B` into `A`); `B -> A` means the
+same thing. So the rules above say:
+
+1. `data` and `ui` can import from `domain`, but not the other way around.
+2. `local` and `remote` can import from `data`, but not the other way around.
+
+Once you have more than a handful of rules the arrow form gets noisy, and you'll probably want the
+map form. The key is the importer:
+
+```yaml
+rules:
+  ui:
+    - domain
+  data:
+    - domain
+  local:
+    - data
+  remote:
+    - data
+```
+
+If a bunch of packages share the same allowlist, YAML composite keys let you group them:
+
+```yaml
+rules:
+  ? [ ui, data ]
+    :
+    - domain
+
+  ? [ local, remote ]
+    :
+    - data
+```
+
+### Fully-qualified package names
+
+The shorthand above breaks down in two situations: when two packages in your codebase share a last
+segment (say `app1.data` and `app2.data` — the shorthand can't tell them apart), or when you want
+to use wildcards (which aren't allowed on single-segment names). For either case, write the package
+out in full:
+
+```yaml
+packages:
+  - com.example.app.local
+  - com.example.app.remote
+  - com.example.app.data
+  - com.example.app.domain
+  - com.example.app.ui
+
+rules:
+  - com.example.app.data <- com.example.app.domain -> com.example.app.ui
+  - com.example.app.local <- com.example.app.data
+  - com.example.app.remote <- com.example.app.data
+```
+
+A bare path like `com.example.app.data` matches that path *and any of its subpackages*, so anything
+under `com.example.app.data.**` lives by `com.example.app.data`'s rules. When more than one tracked
+package matches a file, the longest match wins.
 
 ### Glob patterns
 
