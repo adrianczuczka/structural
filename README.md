@@ -1,25 +1,50 @@
-![https://github.com/adrianczuczka/structural/releases](https://img.shields.io/maven-central/v/com.adrianczuczka/structural)
-![https://github.com/adrianczuczka/structural/issues](https://img.shields.io/github/issues/adrianczuczka/structural)
-![https://github.com/adrianczuczka/structural/actions](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/com.adrianczuczka/structural)](https://central.sonatype.com/artifact/com.adrianczuczka/structural)
+[![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural)](https://github.com/adrianczuczka/structural/issues)
+[![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)](https://github.com/adrianczuczka/structural/actions)
 
 # Structural
 
 ![title image](images/readme_title_image.png)
 
----
+A small Gradle plugin that keeps your packages from importing each other in ways you didn't intend.
 
-A lightweight Gradle plugin for enforcing package dependency rules in Kotlin and Java projects.
-Define which packages can import from others within your project and enforce it automatically.
+You write a YAML file describing which packages are allowed to import from which, and Structural
+fails the build when something crosses a line. It works on Kotlin and Java sources and doesn't
+require splitting your project into separate Gradle modules — useful if you want a Clean
+Architecture-style boundary without the ceremony, or just want to stop one package from reaching
+into another.
 
-Structural is intended to be a quick way to enforce a modular architecture when other tools are not
-preferred or available. However, it can also be used for other purposes such as just forbidding one
-local package from importing from another.
+Want to see it in action? The `kotlin-test-app/` and `java-test-app/` directories in this repo are
+runnable examples (with intentional violations) that you can poke at.
+
+## Quick start
+
+If you'd rather just see the shape of it, here's the whole thing:
+
+```yaml
+# structural.yml in your project root
+packages:
+  - data
+  - domain
+  - ui
+
+rules:
+  - data <- domain -> ui
+```
+
+```bash
+./gradlew structuralCheck
+```
+
+That config says `data` and `ui` may import from `domain`, but not the other way around — and `data`
+and `ui` may not import from each other at all. Anything that breaks those rules fails the build.
+The rest of this README explains the knobs.
 
 ## Installation
 
 ```kts
 plugins {
-    id("com.adrianczuczka.structural") version "[version]"
+    id("com.adrianczuczka.structural") version "<latest>" // see the Maven Central badge above
 }
 
 repositories {
@@ -29,10 +54,10 @@ repositories {
 
 ## Usage
 
-### Set the structure
+### Configure the rules
 
-Structural requires a YAML file to understand the intended package structure. First, create a YAML
-file in your project. You can link it like this:
+Structural reads its configuration from a YAML file. By default it looks for `structural.yml` next
+to your build file; if you'd rather keep it somewhere else, point at it explicitly:
 
 ```kts
 structural {
@@ -40,11 +65,8 @@ structural {
 }
 ```
 
-If you omit this, it will look for a `structural.yml` file by default in the root directory.
-
-In your YAML file, there should be two main sections: `packages` and `rules`. `packages` lists the
-package paths that Structural should check. For example, if you follow MVVM and Clean Architecture
-rules, your list could look like this:
+The config has two main sections: `packages` (what to watch) and `rules` (what's allowed). A typical
+Clean Architecture / MVVM layout might look like this:
 
 ```yaml
 packages:
@@ -55,12 +77,12 @@ packages:
   - com.example.app.ui
 ```
 
-A bare path like `com.example.app.data` matches that path *and any of its subpackages* — so any
-file under `com.example.app.data.**` is governed by `com.example.app.data`'s rules. When several
-tracked packages match the same file, the most specific (longest) one wins.
+A bare path like `com.example.app.data` matches that path *and any of its subpackages*, so anything
+under `com.example.app.data.**` lives by `com.example.app.data`'s rules. When more than one tracked
+package matches a file, the longest match wins.
 
-The `rules` section specifies which packages can import from which others. You can either use
-arrows:
+The `rules` section is where you say who can import from whom. The arrow form reads naturally for
+short rule sets:
 
 ```yaml
 rules:
@@ -69,14 +91,16 @@ rules:
   - com.example.app.remote <- com.example.app.data
 ```
 
-`A <- B` reads "`A` may be imported from `B`" (data flows from `B` to `A`); equivalently `B -> A`.
+`A <- B` reads "`A` may be imported from `B`" (data flows from `B` into `A`); `B -> A` means the
+same thing. So the rules above say:
 
-So the rules above mean:
+1. `com.example.app.data` and `com.example.app.ui` can import from `com.example.app.domain`, but
+   not the other way around.
+2. `com.example.app.local` and `com.example.app.remote` can import from `com.example.app.data`,
+   but not the other way around.
 
-1. `com.example.app.data` and `com.example.app.ui` can import from `com.example.app.domain`, but not vice versa.
-2. `com.example.app.local` and `com.example.app.remote` can import from `com.example.app.data`, but not vice versa.
-
-The same rules can be written as a map (key is the importer):
+Once you have more than a handful of rules the arrow form gets noisy, and you'll probably want the
+map form. The key is the importer:
 
 ```yaml
 rules:
@@ -90,7 +114,7 @@ rules:
     - com.example.app.data
 ```
 
-YAML composite keys also work for grouping importers that share the same allowlist:
+If a bunch of packages share the same allowlist, YAML composite keys let you group them:
 
 ```yaml
 rules:
@@ -105,9 +129,9 @@ rules:
 
 ### Single-segment shorthand
 
-If your project's structure is simple enough, you can use single-segment names. Single-segment
-tokens (no dots) are matched by *last segment only* — so a token of `data` matches any file whose
-package ends in `.data` regardless of the prefix:
+For simpler projects, you can skip the fully-qualified package paths and just use the last segment.
+A token like `data` (no dots) matches any file whose package *ends* in `.data`, regardless of what
+comes before it:
 
 ```yaml
 packages:
@@ -123,14 +147,14 @@ rules:
   - remote <- data
 ```
 
-Single-segment shorthand cannot use wildcards or `!`. If two packages in your project share the
-same last segment (for instance `app1.data` and `app2.data`), use the multi-segment form so the
-plugin can tell them apart.
+Wildcards and `!` aren't allowed on single-segment names. And if two packages in your project
+share the same last segment (say `app1.data` and `app2.data`), the shorthand can't tell them apart
+— write them out in full instead.
 
 ### Glob patterns
 
-For multi-segment (fully-qualified) package names, Structural supports Ant-style wildcards so you
-don't have to enumerate every subpackage by hand:
+For fully-qualified package names, Structural supports Ant-style wildcards so you don't have to
+spell out every subpackage by hand:
 
 | Pattern | Matches |
 | --- | --- |
@@ -142,17 +166,17 @@ don't have to enumerate every subpackage by hand:
 | `com.**.internal` | any package under `com.` that ends in `.internal`, plus `com.internal` itself |
 | `**.private` | any package ending in `.private`, plus `private` itself |
 
-Rules:
+A few things worth knowing:
 
 - `*` matches exactly one package segment.
-- `**` matches zero or more segments.
-- A trailing `!` means exact match and cannot be combined with wildcards.
-- Wildcards and `!` are only valid on multi-segment (dotted) tokens — they are rejected on
-  single-segment names like `data`.
-- Each side of an arrow rule is parsed independently, so `A! -> B.**` is valid.
+- `**` matches zero or more.
+- A trailing `!` pins the rule to that exact package and can't be combined with wildcards.
+- Wildcards and `!` only work on dotted tokens — they're rejected on single-segment names
+  like `data`.
+- Each side of an arrow rule is parsed on its own, so `A! -> B.**` is fine.
 
-Example from the user-facing issue this feature was added for — letting everything under
-`dev.ionfusion.runtime` import from anything under `dev.ionfusion.runtime._private`:
+Here's the example that prompted this feature: letting everything under `dev.ionfusion.runtime`
+import from anything under `dev.ionfusion.runtime._private`.
 
 ```yaml
 packages:
@@ -163,8 +187,7 @@ rules:
   - dev.ionfusion.runtime._private -> dev.ionfusion.runtime
 ```
 
-And if you wanted to lock the relationship down to the exact packages only (no subpackages on
-either side):
+Or, if you want to lock both sides down to the exact packages and ignore subpackages entirely:
 
 ```yaml
 rules:
@@ -173,10 +196,14 @@ rules:
 
 ### Class rules (additive)
 
-Sometimes a single class needs to cross a package boundary that the package rules deny — a shared
-exception type, a builder class, or a small handful of internals during a refactor. The optional
-top-level `classes:` section lets you grant those specific imports without loosening the
-package-level rules:
+Real codebases always seem to have a few cases where one specific class needs to cross a boundary
+that the package rules don't allow — a shared exception, a builder, a handful of internals you're
+mid-refactor on. The optional `classes:` section is for those: it lets you punch a class-shaped
+hole through a package rule without weakening the package rule itself.
+
+Class rules are **purely additive** — they can grant a cross-package import that package rules
+would otherwise reject, but they can't take away an import that package rules already allow. Use
+them sparingly, and prefer fixing the package boundary if the list starts growing.
 
 ```yaml
 packages:
@@ -192,27 +219,25 @@ classes:
   - "com.example.api.** <- com.example.impl.**._Private_*"
 ```
 
-Class rules are **purely additive**: they can grant a cross-package import that package rules would
-otherwise reject. They cannot deny what package rules allow. (A future release may add a
-deny-exception form.)
+(A future release may add a deny-exception form for the inverse case — granting most things and
+carving out a few denials. Open an issue if you need it.)
 
 #### Token grammar
 
-Each side of a class rule is a token like `com.example.api.ApiBuilder`. The parser splits it into a
-**package portion** and an optional **class portion** using these rules, in priority order:
+Each side of a class rule is a token like `com.example.api.ApiBuilder`. Structural splits it into a
+**package portion** and an optional **class portion**, working through these rules in order:
 
-1. A segment containing `*` (other than the whole-segment `*` and `**` package wildcards) is the
-   class-name segment. So `com.example.impl._Private_*` parses as package `com.example.impl`, class
+1. Any segment containing `*` (other than the whole-segment wildcards `*` and `**`) is the class
+   name. So `com.example.impl._Private_*` parses as package `com.example.impl`, class
    `_Private_*`.
 2. Otherwise, the first segment whose first non-underscore character is uppercase is the class
    name. So `com.example.api.ApiBuilder` parses as package `com.example.api`, class `ApiBuilder`.
-   `_PrivateClass` is recognised as a class because the first non-underscore character (`P`) is
-   uppercase.
-3. Otherwise (all-lowercase token), there is no class portion — the whole token is a package
-   pattern. So `com.example.api.**` is package=`com.example.api.**`, class=any.
-4. As an escape for the rare case of a lowercase class name (e.g. a Kotlin typealias or DSL
-   receiver), prefix the trailing segment with `:` to force it to be parsed as a class:
-   `com.example.api.:listOf` parses as package `com.example.api`, class `listOf`.
+   `_PrivateClass` counts because the first non-underscore character (`P`) is uppercase.
+3. If neither of those matches (i.e. everything is lowercase), the whole token is a package
+   pattern. `com.example.api.**` is package=`com.example.api.**`, class=any.
+4. For the rare lowercase class name (a Kotlin typealias, a DSL receiver, etc.), prefix the
+   trailing segment with `:` to force it: `com.example.api.:listOf` parses as package
+   `com.example.api`, class `listOf`.
 
 The package portion uses the [glob grammar above](#glob-patterns); the class portion supports
 shell-style globs on a single identifier:
@@ -230,7 +255,7 @@ portion's `**` for cross-subpackage matching.
 
 #### Map form
 
-Class rules also accept the same map form as `rules:` — the key is the importer:
+Same map form as `rules:`, with the importer as the key:
 
 ```yaml
 classes:
@@ -243,42 +268,56 @@ classes:
 
 #### Known limitations
 
-- **Class identity is the file name.** Structural is file-scoped, so the importing class's identity
-  is the file's name without extension (e.g. `ApiBuilder.kt` ⇒ class `ApiBuilder`). A Kotlin file
-  named `Api.kt` that *declares* a class `ApiBuilder` will not match a rule referencing
-  `com.example.api.ApiBuilder` — name your file after the class you want to constrain.
-- **Wildcard imports cannot be granted by class rules.** `import com.foo.*` has no class name, so
-  class rules can't engage; the package-level decision applies.
-- **Static imports** (Java) are matched against the *enclosing class*. So
-  `import static com.foo.Util.LOG;` is granted by a rule referencing `com.foo.Util`, not one
-  referencing `com.foo.LOG`.
-- **Nested-class patterns are not supported.** A token like `com.example.Foo.Bar` is rejected at
-  parse time. A rule on `Foo` matches imports of `Foo.Bar` by simple name (`Bar`); use a class glob
-  on the imported side if you need that.
-- **Kotlin object members.** `import com.foo.MyObject.member` is matched by simple name (`member`),
-  not against the enclosing object — there's no `isStatic` flag in Kotlin to disambiguate.
+A few sharp edges worth knowing about up front:
+
+- **The importing class's identity is its file name.** Structural is file-scoped, so a class rule
+  on `com.example.api.ApiBuilder` matches a file called `ApiBuilder.kt`. If you've got an `Api.kt`
+  that happens to *declare* `class ApiBuilder` inside it, the rule won't fire. The fix is usually
+  to name the file after the class you care about.
+- **Wildcard imports can't be granted by class rules.** `import com.foo.*` has no class name to
+  match against, so class rules can't engage and the package-level rule applies as-is.
+- **Java static imports are matched against the enclosing class.** So
+  `import static com.foo.Util.LOG;` is granted by a rule on `com.foo.Util`, not one on
+  `com.foo.LOG`.
+- **Nested-class patterns aren't supported.** A token like `com.example.Foo.Bar` is rejected when
+  the config is parsed. A rule on `Foo` will match `import Foo.Bar` by simple name (`Bar`); reach
+  for a class glob on the imported side if you need finer control.
+- **Kotlin object members.** `import com.foo.MyObject.member` is matched by simple name
+  (`member`), not against the enclosing object. Kotlin's import directive doesn't tell us whether
+  `member` is an object member or a top-level declaration, so treat them the same when writing
+  rules.
 
 ### Run the check
 
-To check your project's package imports against the rules, run:
-
 ```bash
-./gradlew structuralCheck 
+./gradlew structuralCheck
 ```
 
-An example result will look like this:
+When something's wrong, the output looks like this:
+
 ![readme_example_result.png](images/readme_example_result.png)
+
+The task exits non-zero on violations, so it's safe to wire into CI. A common pattern is to make it
+a dependency of `check` so it runs alongside your tests:
+
+```kts
+tasks.named("check") {
+    dependsOn("structuralCheck")
+}
+```
 
 ### Setting a baseline
 
-To ignore certain issues, you can run this command:
+Adopting Structural on an existing codebase usually means a long initial list of violations.
+Rather than fixing them all up front, you can snapshot the current state as a baseline and only
+fail on *new* violations:
 
 ```bash
 ./gradlew structuralGenerateBaseline
 ```
 
-This will create a baseline file containing all current issues, which will be ignored on subsequent checks. By default,
-the baseline will be created in `$rootDir/baseline.xml`. To set a custom path, you can add this property:
+That writes a baseline file (default: `$rootDir/baseline.xml`) listing the existing issues, which
+`structuralCheck` will then ignore. Point at a different location with:
 
 ```kts
 structural {
@@ -286,6 +325,10 @@ structural {
 }
 ```
 
+Check the baseline into version control so the rest of your team gets the same behavior.
+
 ### Compatibility
 
-This plugin supports both Kotlin and Java source files. It uses the Kotlin compiler for parsing via an isolated classloader, so it works with any Kotlin version in your project.
+Structural works on Kotlin and Java sources. The Kotlin parser runs in an isolated classloader,
+which means the plugin uses its own bundled Kotlin compiler — so it doesn't matter what Kotlin
+version your project uses (or whether you use Kotlin at all).
