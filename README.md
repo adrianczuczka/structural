@@ -327,6 +327,13 @@ structural {
 
 Check the baseline into version control so the rest of your team gets the same behavior.
 
+If you apply Structural to several modules and point them at one shared baseline file, each
+module's `structuralGenerateBaseline` task contributes its findings to that file rather than
+overwriting it (`1.2.0-alpha02`+). The trade-off: the baseline is **additive** — once an entry
+is in there, it stays until you delete `baseline.xml` and regenerate from scratch. So when you
+fix a violation, drop the file and re-run `structuralGenerateBaseline` if you want a clean
+slate.
+
 ### Compatibility
 
 Structural works on Kotlin and Java sources. The Kotlin parser runs in an isolated classloader,
