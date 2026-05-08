@@ -327,12 +327,16 @@ structural {
 
 Check the baseline into version control so the rest of your team gets the same behavior.
 
-If you apply Structural to several modules and point them at one shared baseline file, each
-module's `structuralGenerateBaseline` task contributes its findings to that file rather than
-overwriting it (`1.2.0-alpha02`+). The trade-off: the baseline is **additive** — once an entry
-is in there, it stays until you delete `baseline.xml` and regenerate from scratch. So when you
-fix a violation, drop the file and re-run `structuralGenerateBaseline` if you want a clean
-slate.
+In a multi-module build, `structuralGenerateBaseline` is registered per module — each module
+writes its own baseline at the path it configured. That's the convention you'll recognise from
+detekt and ktlint, and it's the default if you don't think about it.
+
+If you want a *single* shared baseline across modules instead — every module pointing at one
+`$rootDir/baseline.xml`, say — invoke the opt-in `structuralAggregateBaseline` at the root.
+That task collects findings from every module that applied the plugin and writes one file per
+configured path with the aggregated, deduplicated entries. Use this instead of
+`structuralGenerateBaseline` for shared-baseline workflows; using both at once on a shared path
+will race.
 
 ### Compatibility
 

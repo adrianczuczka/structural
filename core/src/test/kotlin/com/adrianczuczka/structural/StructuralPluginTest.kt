@@ -865,10 +865,106 @@ class StructuralPluginTest {
     }
 
     @Test
-    fun `structuralGenerateBaseline preserves findings from sibling modules sharing a baseline`() {
-        // Reproduces issue #8: when multiple modules apply the plugin and point at the
-        // same baseline path, each module's structuralGenerateBaseline task must contribute
-        // its findings to the shared file without clobbering the others.
+    fun `structuralAggregateBaseline merges findings from sibling modules sharing a baseline`() {
+        // Issue #8: opt-in aggregator collects every module's findings into one shared
+        // baseline file when modules point at the same path.
+        setupTwoModuleProject(
+            moduleAFile = "First" to "SomeClass",
+            moduleBFile = "Second" to "OtherClass",
+            moduleABaseline = "\$rootDir/baseline.xml",
+            moduleBBaseline = "\$rootDir/baseline.xml",
+        )
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralAggregateBaseline", "--parallel")
+            .build()
+
+        val content = File(testProjectDir, "baseline.xml").readText()
+        val ids = content.lines().filter { it.contains("<ID>") }
+        assertThat(ids).hasSize(2)
+        assertThat(content).contains("First")
+        assertThat(content).contains("Second")
+        assertThat(ids.distinct()).hasSize(2)
+    }
+
+    @Test
+    fun `structuralGenerateBaseline writes per-module baselines when paths differ`() {
+        // Each module configures its own baseline path: aggregator must write each path
+        // with only that module's findings.
+        setupTwoModuleProject(
+            moduleAFile = "First" to "SomeClass",
+            moduleBFile = "Second" to "OtherClass",
+            moduleABaseline = "\$projectDir/baseline.xml",
+            moduleBBaseline = "\$projectDir/baseline.xml",
+        )
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val baselineA = File(testProjectDir, "moduleA/baseline.xml").readText()
+        val baselineB = File(testProjectDir, "moduleB/baseline.xml").readText()
+        assertThat(baselineA).contains("First")
+        assertThat(baselineA).doesNotContain("Second")
+        assertThat(baselineB).contains("Second")
+        assertThat(baselineB).doesNotContain("First")
+    }
+
+    @Test
+    fun `structuralGenerateBaseline drops fixed violations on regeneration`() {
+        // Aggregator rewrites from the current findings, so once a violation is gone
+        // from the source it should disappear from the baseline on the next run.
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val baselineFile = File(testProjectDir, "baseline.xml")
+        assertThat(baselineFile.readText()).contains("ForbiddenImport")
+
+        // Remove the violating import so the next baseline run finds nothing.
+        File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").writeText(
+            """
+            package com.example.ui
+
+            class Test
+            """
+        )
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline")
+            .build()
+
+        val regenerated = baselineFile.readText()
+        assertThat(regenerated).doesNotContain("ForbiddenImport")
+    }
+
+    private fun setupTwoModuleProject(
+        moduleAFile: Pair<String, String>,
+        moduleBFile: Pair<String, String>,
+        moduleABaseline: String,
+        moduleBBaseline: String,
+    ) {
         File(testProjectDir, "settings.gradle.kts").writeText(
             """
             include(":moduleA")
@@ -888,7 +984,7 @@ class StructuralPluginTest {
             """
         )
 
-        fun configureModule(name: String, fileName: String, importedClass: String) {
+        fun configureModule(name: String, fileName: String, importedClass: String, baseline: String) {
             File(testProjectDir, "$name/build.gradle.kts").apply {
                 parentFile.mkdirs()
                 writeText(
@@ -901,7 +997,7 @@ class StructuralPluginTest {
                     }
                     structural {
                         config = "${'$'}rootDir/structural.yml"
-                        baseline = "${'$'}rootDir/baseline.xml"
+                        baseline = "$baseline"
                     }
                     """
                 )
@@ -920,22 +1016,8 @@ class StructuralPluginTest {
             }
         }
 
-        configureModule("moduleA", "First", "SomeClass")
-        configureModule("moduleB", "Second", "OtherClass")
-
-        GradleRunner.create()
-            .withProjectDir(testProjectDir)
-            .withPluginClasspath()
-            .withArguments("structuralGenerateBaseline", "--parallel")
-            .build()
-
-        val baselineFile = File(testProjectDir, "baseline.xml")
-        val content = baselineFile.readText()
-        val ids = content.lines().filter { it.contains("<ID>") }
-        assertThat(ids).hasSize(2)
-        assertThat(content).contains("First")
-        assertThat(content).contains("Second")
-        assertThat(ids.distinct()).hasSize(2)
+        configureModule("moduleA", moduleAFile.first, moduleAFile.second, moduleABaseline)
+        configureModule("moduleB", moduleBFile.first, moduleBFile.second, moduleBBaseline)
     }
 
     @Test

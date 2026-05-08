@@ -9,7 +9,6 @@ import com.adrianczuczka.structural.yaml.specificity
 import org.gradle.api.GradleException
 import org.gradle.workers.WorkAction
 import java.io.File
-import java.io.RandomAccessFile
 
 abstract class StructuralWorkAction : WorkAction<StructuralParams> {
     override fun execute() {
@@ -31,7 +30,10 @@ abstract class StructuralWorkAction : WorkAction<StructuralParams> {
                 rulesPath = rulesPath,
                 ignoredViolations = emptyMap()
             )
-            violations.generateBaseline(baselinePath)
+            val findingsPath = parameters.findingsPath.get()
+            val ids = violations.toIds()
+            writeFindings(findingsPath = findingsPath, baselinePath = baselinePath, ids = ids)
+            writeBaseline(baselinePath = baselinePath, ids = ids)
         }
     }
 }
@@ -222,49 +224,34 @@ private fun Map<File, List<ReportedViolation>>.report() {
     }
 }
 
-private fun Map<File, List<ReportedViolation>>.generateBaseline(baselinePath: String) {
-    val newEntries =
-        entries.flatMap { (file, reportedViolations) ->
-            reportedViolations.map { (violation, _, _) ->
-                when (violation) {
-                    is ViolationData.FileOnSameLevelAsPackages ->
-                        "FileOnSameLevelAsPackages" +
-                                "$${file.nameWithoutExtension}" +
-                                "$${violation.className}" +
-                                "$${violation.importedPackage}"
+private fun Map<File, List<ReportedViolation>>.toIds(): List<String> =
+    entries.flatMap { (file, reportedViolations) ->
+        reportedViolations.map { (violation, _, _) ->
+            when (violation) {
+                is ViolationData.FileOnSameLevelAsPackages ->
+                    "FileOnSameLevelAsPackages" +
+                            "$${file.nameWithoutExtension}" +
+                            "$${violation.className}" +
+                            "$${violation.importedPackage}"
 
-                    is ViolationData.ForbiddenImport ->
-                        "ForbiddenImport" +
-                                "$${file.nameWithoutExtension}" +
-                                "$${violation.importingPackage}" +
-                                "$${violation.importPath}"
-                }
+                is ViolationData.ForbiddenImport ->
+                    "ForbiddenImport" +
+                            "$${file.nameWithoutExtension}" +
+                            "$${violation.importingPackage}" +
+                            "$${violation.importPath}"
             }
         }
+    }.distinct().sorted()
+
+private fun writeFindings(findingsPath: String, baselinePath: String, ids: List<String>) {
+    val findingsFile = File(findingsPath)
+    findingsFile.parentFile?.mkdirs()
+    val header = "# baseline=$baselinePath"
+    findingsFile.writeText((listOf(header) + ids).joinToString("\n", postfix = "\n"))
+}
+
+private fun writeBaseline(baselinePath: String, ids: List<String>) {
     val baselineFile = File(baselinePath)
     baselineFile.parentFile?.mkdirs()
-    // Lock the file so multi-module builds that share one baseline path can each
-    // contribute findings without racing on overwrites. The interned canonical path
-    // serializes workers within this JVM (FileChannel.lock is JVM-wide and would
-    // otherwise raise OverlappingFileLockException between sibling tasks in the
-    // Gradle daemon); the FileChannel lock then guards against other JVMs.
-    synchronized(baselineFile.canonicalPath.intern()) {
-        RandomAccessFile(baselineFile, "rw").use { raf ->
-            raf.channel.lock().use {
-                val existing = if (raf.length() > 0) {
-                    val bytes = ByteArray(raf.length().toInt())
-                    raf.seek(0)
-                    raf.readFully(bytes)
-                    parseBaselineIds(String(bytes))
-                } else {
-                    emptyList()
-                }
-                val merged = (existing + newEntries).distinct().sorted()
-                val xml = BaselineData(merged).toXml().toByteArray()
-                raf.seek(0)
-                raf.setLength(0)
-                raf.write(xml)
-            }
-        }
-    }
+    baselineFile.writeText(BaselineData(ids).toXml())
 }

@@ -28,27 +28,52 @@ class StructuralPlugin : Plugin<Project> {
             isCanBeConsumed = false
         }
 
-        fun StructuralTask.configureTask(taskMode: String) {
-            val defaultRulesPath = "${project.projectDir}/structural.yml"
-            val defaultBaselinePath = "${project.projectDir}/baseline.xml"
+        val defaultRulesPath = "${project.projectDir}/structural.yml"
+        val defaultBaselinePath = "${project.projectDir}/baseline.xml"
+        val rulesPathProvider = project.provider {
+            extension.config?.let { project.file(it).absolutePath } ?: defaultRulesPath
+        }
+        val baselinePathProvider = project.provider {
+            extension.baseline?.let { project.file(it).absolutePath } ?: defaultBaselinePath
+        }
 
-            mode.set(taskMode)
+        project.tasks.register("structuralCheck", StructuralCheckTask::class.java) {
+            group = "verification"
+            description = "Checks if packages satisfy specified architecture"
             sourceFiles.set(sourceFilesProvider)
-            rulesPath.set(extension.config?.let { project.file(it).absolutePath } ?: defaultRulesPath)
-            baselinePath.set(extension.baseline?.let { project.file(it).absolutePath } ?: defaultBaselinePath)
+            rulesPath.set(rulesPathProvider)
+            baselinePath.set(baselinePathProvider)
             kotlinCompiler.from(structuralConfiguration)
         }
 
-        project.tasks.register("structuralCheck", StructuralTask::class.java) {
+        val baselineTask = project.tasks.register(
+            "structuralGenerateBaseline",
+            StructuralBaselineTask::class.java
+        ) {
             group = "verification"
-            description = "Checks if packages satisfy specified architecture"
-            configureTask("check")
+            description = "Generates baseline of package issues for this module"
+            sourceFiles.set(sourceFilesProvider)
+            rulesPath.set(rulesPathProvider)
+            baselinePath.set(baselinePathProvider)
+            findingsFile.set(project.layout.buildDirectory.file("structural/findings.txt"))
+            kotlinCompiler.from(structuralConfiguration)
         }
 
-        project.tasks.register("structuralGenerateBaseline", StructuralTask::class.java) {
-            group = "verification"
-            description = "Generates baseline of package issues"
-            configureTask("baseline")
+        // Always register the root aggregator (idempotent across modules), but it only runs
+        // when explicitly invoked via `./gradlew structuralAggregateBaseline`. Use this for
+        // shared-baseline workflows where multiple modules point at one baseline file.
+        val rootTasks = project.rootProject.tasks
+        val aggregator = if (rootTasks.findByName("structuralAggregateBaseline") == null) {
+            rootTasks.register("structuralAggregateBaseline", AggregateBaselineTask::class.java) {
+                group = "verification"
+                description = "Aggregates per-module findings into one baseline file per configured path"
+            }
+        } else {
+            rootTasks.named("structuralAggregateBaseline", AggregateBaselineTask::class.java)
+        }
+        aggregator.configure {
+            findingsFiles.from(baselineTask.flatMap { it.findingsFile })
+            dependsOn(baselineTask)
         }
     }
 

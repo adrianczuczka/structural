@@ -10,4 +10,5 @@ internal interface StructuralParams : WorkParameters {
     val sourceFiles: SetProperty<File>
     val rulesPath: Property<String>
     val baselinePath: Property<String>
+    val findingsPath: Property<String>
 }
