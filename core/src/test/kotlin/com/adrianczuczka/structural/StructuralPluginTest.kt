@@ -865,6 +865,80 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `structuralGenerateBaseline preserves findings from sibling modules sharing a baseline`() {
+        // Reproduces issue #8: when multiple modules apply the plugin and point at the
+        // same baseline path, each module's structuralGenerateBaseline task must contribute
+        // its findings to the shared file without clobbering the others.
+        File(testProjectDir, "settings.gradle.kts").writeText(
+            """
+            include(":moduleA")
+            include(":moduleB")
+            """
+        )
+        File(testProjectDir, "build.gradle.kts").writeText("")
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+              - ui
+
+            rules:
+              - data <- domain -> ui
+            """
+        )
+
+        fun configureModule(name: String, fileName: String, importedClass: String) {
+            File(testProjectDir, "$name/build.gradle.kts").apply {
+                parentFile.mkdirs()
+                writeText(
+                    """
+                    plugins {
+                        id("com.adrianczuczka.structural")
+                    }
+                    repositories {
+                        mavenCentral()
+                    }
+                    structural {
+                        config = "${'$'}rootDir/structural.yml"
+                        baseline = "${'$'}rootDir/baseline.xml"
+                    }
+                    """
+                )
+            }
+            File(testProjectDir, "$name/src/main/kotlin/com/example/ui/$fileName.kt").apply {
+                parentFile.mkdirs()
+                writeText(
+                    """
+                    package com.example.ui
+
+                    import com.example.data.$importedClass
+
+                    class $fileName
+                    """
+                )
+            }
+        }
+
+        configureModule("moduleA", "First", "SomeClass")
+        configureModule("moduleB", "Second", "OtherClass")
+
+        GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralGenerateBaseline", "--parallel")
+            .build()
+
+        val baselineFile = File(testProjectDir, "baseline.xml")
+        val content = baselineFile.readText()
+        val ids = content.lines().filter { it.contains("<ID>") }
+        assertThat(ids).hasSize(2)
+        assertThat(content).contains("First")
+        assertThat(content).contains("Second")
+        assertThat(ids.distinct()).hasSize(2)
+    }
+
+    @Test
     fun `structuralCheck should ignore violations present in baseline`() {
         File(testProjectDir, "src/main/kotlin/com/example/ui/Test.kt").apply {
             parentFile.mkdirs()

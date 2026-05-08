@@ -94,6 +94,20 @@ internal fun extractEnclosingClassFromImport(
     return parts.getOrNull(parts.size - 2)
 }
 
+internal fun parseBaselineIds(xmlContent: String): List<String> {
+    if (xmlContent.isBlank()) return emptyList()
+    val factory = DocumentBuilderFactory.newInstance()
+    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+    factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+    factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+    val document: Document = factory.newDocumentBuilder().parse(xmlContent.byteInputStream())
+    document.documentElement.normalize()
+    val nodeList = document.getElementsByTagName("ID")
+    return (0 until nodeList.length).mapNotNull { i ->
+        (nodeList.item(i) as? Element)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+    }
+}
+
 internal fun getIgnoredViolationsFromBaseline(baselinePath: String): Map<String, List<ViolationData>> {
     val file = File(baselinePath)
     if (!file.exists()) return emptyMap()
