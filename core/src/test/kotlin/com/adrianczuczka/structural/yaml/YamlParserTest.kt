@@ -19,9 +19,6 @@ class YamlParserTest {
     fun `absent classes section yields empty class rule list`() {
         val data = yaml(
             """
-            packages:
-              - data
-              - domain
             rules:
               - data <- domain
             """
@@ -34,9 +31,6 @@ class YamlParserTest {
     fun `empty classes section yields empty class rule list`() {
         val data = yaml(
             """
-            packages:
-              - data
-              - domain
             rules:
               - data <- domain
             classes: []
@@ -50,10 +44,9 @@ class YamlParserTest {
     fun `arrow form classes parse to rules`() {
         val data = yaml(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-            rules: []
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
@@ -71,10 +64,9 @@ class YamlParserTest {
     fun `right arrow class rule swaps importer and imported`() {
         val data = yaml(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-            rules: []
             classes:
               - "com.example.impl.FusionException -> com.example.api.**"
             """
@@ -91,10 +83,9 @@ class YamlParserTest {
     fun `map form classes parse to rules with importer as key`() {
         val data = yaml(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-            rules: []
             classes:
               "com.example.api.**":
                 - com.example.impl.FusionException
@@ -114,10 +105,9 @@ class YamlParserTest {
     fun `map and arrow forms produce equivalent rules`() {
         val arrow = yaml(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-            rules: []
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
@@ -127,10 +117,9 @@ class YamlParserTest {
         val map = File(tempDir, "structural-map.yml").apply {
             writeText(
                 """
-                packages:
+                rules:
                   - com.example.api
                   - com.example.impl
-                rules: []
                 classes:
                   "com.example.api.**":
                     - com.example.impl.FusionException
@@ -146,10 +135,9 @@ class YamlParserTest {
         val ex = assertThrows<GradleException> {
             yaml(
                 """
-                packages:
+                rules:
                   - com.example.api
                   - com.example.impl
-                rules: []
                 classes:
                   - "com.example.api.**"
                 """
@@ -159,18 +147,61 @@ class YamlParserTest {
     }
 
     @Test
-    fun `classes only with no rules section is allowed`() {
+    fun `bare identifier in arrow form rules tracks the package`() {
         val data = yaml(
             """
-            packages:
-              - com.example.api
-              - com.example.impl
-            classes:
-              - "com.example.api.** <- com.example.impl.FusionException"
+            rules:
+              - data <- domain
+              - legacy
             """
         ).parseYamlImportRules()!!
 
-        assertThat(data.classRules).hasSize(1)
+        val patterns = data.rules.keys.map { it.pattern }
+        assertThat(patterns).containsExactly("data", "domain", "legacy")
+        assertThat(data.rules[TrackedPackage("legacy")]).isEmpty()
+    }
+
+    @Test
+    fun `map form value packages become tracked too`() {
+        val data = yaml(
+            """
+            rules:
+              data:
+                - domain
+            """
+        ).parseYamlImportRules()!!
+
+        val patterns = data.rules.keys.map { it.pattern }
+        assertThat(patterns).containsExactly("data", "domain")
+    }
+
+    @Test
+    fun `classes only without rules is rejected`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                classes:
+                  - "com.example.api.** <- com.example.impl.FusionException"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("No tracked packages")
+    }
+
+    @Test
+    fun `legacy packages block triggers a migration error`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                packages:
+                  - data
+                  - domain
+                rules:
+                  - data <- domain
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("`packages:` block has been removed")
     }
 
     @Test
@@ -178,8 +209,8 @@ class YamlParserTest {
         val ex = assertThrows<GradleException> {
             yaml(
                 """
-                packages:
-                  - data
+                # empty config
+                empty: true
                 """
             ).parseYamlImportRules()
         }

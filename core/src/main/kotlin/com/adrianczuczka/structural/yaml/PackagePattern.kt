@@ -14,7 +14,7 @@ internal data class TrackedPackage(val pattern: String) {
 }
 
 /**
- * Parses a raw token from `packages:` or a rule side into a [TrackedPackage].
+ * Parses a raw token from a rule side into a [TrackedPackage].
  *
  * Supported forms:
  * - bare multi-segment (e.g. `com.example`) — matches that path and any subpackage.

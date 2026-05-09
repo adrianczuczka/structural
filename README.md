@@ -23,11 +23,6 @@ If you'd rather just see the shape of it, here's the whole thing:
 
 ```yaml
 # structural.yml in your project root
-packages:
-  - data
-  - domain
-  - ui
-
 rules:
   - data <- domain -> ui
 ```
@@ -37,8 +32,9 @@ rules:
 ```
 
 That config says `data` and `ui` may import from `domain`, but not the other way around — and `data`
-and `ui` may not import from each other at all. Anything that breaks those rules fails the build.
-The rest of this README explains the knobs.
+and `ui` may not import from each other at all. Tracked packages are inferred from the rules: any
+identifier that appears in `rules:` becomes a layer Structural enforces. Anything that breaks those
+rules fails the build. The rest of this README explains the knobs.
 
 ## Installation
 
@@ -65,25 +61,13 @@ structural {
 }
 ```
 
-The config has two main sections: `packages` (the layers you want to enforce) and `rules` (which
-layers may import from which). For most projects, naming the layers by their last segment is all
-you need:
+The whole config is a single `rules:` section: the layers you want to enforce, expressed as the
+relationships between them. Every identifier that appears in `rules:` becomes a tracked layer; any
+import from outside that set (kotlin stdlib, third-party libs, packages you don't care about) is
+unconditionally allowed.
 
-```yaml
-packages:
-  - local
-  - remote
-  - data
-  - domain
-  - ui
-```
-
-A token like `data` (no dots) matches every file whose package *ends* in `.data` — for example
-`com.example.app.data` and everything beneath it. That's almost always what you want for an
-architectural rule like "nothing in `ui` may touch `data` directly."
-
-The `rules` section is where you say who can import from whom. The arrow form reads naturally for
-short rule sets:
+For most projects, naming the layers by their last segment is all you need. The arrow form reads
+naturally for short rule sets:
 
 ```yaml
 rules:
@@ -92,11 +76,24 @@ rules:
   - remote <- data
 ```
 
+A token like `data` (no dots) matches every file whose package *ends* in `.data` — for example
+`com.example.app.data` and everything beneath it. That's almost always what you want for an
+architectural rule like "nothing in `ui` may touch `data` directly."
+
 `A <- B` reads "`A` may be imported from `B`" (data flows from `B` into `A`); `B -> A` means the
 same thing. So the rules above say:
 
 1. `data` and `ui` can import from `domain`, but not the other way around.
 2. `local` and `remote` can import from `data`, but not the other way around.
+
+If you want to track a layer that isn't allowed to import from any other tracked layer, list it as
+a bare entry — no arrow needed:
+
+```yaml
+rules:
+  - data <- domain -> ui
+  - legacy           # tracked, with no allowed imports from other layers
+```
 
 Once you have more than a handful of rules the arrow form gets noisy, and you'll probably want the
 map form. The key is the importer:
@@ -111,6 +108,7 @@ rules:
     - data
   remote:
     - data
+  legacy: []         # tracked, with no allowed imports
 ```
 
 If a bunch of packages share the same allowlist, YAML composite keys let you group them:
@@ -134,13 +132,6 @@ to use wildcards (which aren't allowed on single-segment names). For either case
 out in full:
 
 ```yaml
-packages:
-  - com.example.app.local
-  - com.example.app.remote
-  - com.example.app.data
-  - com.example.app.domain
-  - com.example.app.ui
-
 rules:
   - com.example.app.data <- com.example.app.domain -> com.example.app.ui
   - com.example.app.local <- com.example.app.data
@@ -179,10 +170,6 @@ Here's the example that prompted this feature: letting everything under `dev.ion
 import from anything under `dev.ionfusion.runtime._private`.
 
 ```yaml
-packages:
-  - dev.ionfusion.runtime._private
-  - dev.ionfusion.runtime
-
 rules:
   - dev.ionfusion.runtime._private -> dev.ionfusion.runtime
 ```
@@ -206,11 +193,10 @@ would otherwise reject, but they can't take away an import that package rules al
 them sparingly, and prefer fixing the package boundary if the list starts growing.
 
 ```yaml
-packages:
+rules:
+  # bare entries — api and impl are tracked, but no cross-package imports are allowed
   - com.example.api
   - com.example.impl
-
-rules: []   # api and impl cannot import each other by default
 
 classes:
   - "com.example.api.** <- com.example.impl.FusionException"

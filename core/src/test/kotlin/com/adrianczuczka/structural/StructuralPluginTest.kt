@@ -30,12 +30,6 @@ class StructuralPluginTest {
         )
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data
-              - domain
-              - ui
-              - test
-
             rules:
               - data <- domain -> ui
               - test -> data
@@ -172,12 +166,11 @@ class StructuralPluginTest {
     fun `structuralCheck should fail when there are no rules but imports exist`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - data
               - domain
               - ui
               - test
-            rules: []
             """
         )
 
@@ -246,12 +239,6 @@ class StructuralPluginTest {
         )
         File(testProjectDir, "custom-structural.yml").writeText(
             """
-            packages:
-              - data
-              - domain
-              - ui
-              - test
-
             rules:
               - data <- domain -> ui
               - test -> data
@@ -321,12 +308,6 @@ class StructuralPluginTest {
         // Add structural.yml to moduleB
         File(moduleB, "structural.yml").writeText(
             """
-        packages:
-          - data
-          - domain
-          - ui
-          - test
-
         rules:
           - data <- domain -> ui
           - test -> data
@@ -470,12 +451,6 @@ class StructuralPluginTest {
     fun `structuralCheck should check each package layer independently`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data
-              - local
-              - domain
-              - ui
-
             rules:
               - data <- domain -> ui
               - local <- domain
@@ -640,11 +615,6 @@ class StructuralPluginTest {
     fun `structuralCheck should detect violations with multi-segment package names`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-                - "com.example.app.core"
-                - "com.example.app.service"
-                - "com.example.app.util"
-
             rules:
                 "com.example.app.core":
                     - "com.example.app.service"
@@ -680,11 +650,6 @@ class StructuralPluginTest {
     fun `structuralCheck should pass valid imports with multi-segment package names`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-                - "com.example.app.core"
-                - "com.example.app.service"
-                - "com.example.app.util"
-
             rules:
                 "com.example.app.core":
                     - "com.example.app.service"
@@ -720,11 +685,6 @@ class StructuralPluginTest {
     fun `structuralCheck should allow imports within same multi-segment package`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-                - "com.example.app.core"
-                - "com.example.app.service"
-                - "com.example.app.util"
-
             rules:
                 "com.example.app.core":
                     - "com.example.app.service"
@@ -757,15 +717,43 @@ class StructuralPluginTest {
     }
 
     @Test
-    fun `structuralCheck should fail when a rule has no arrow`() {
+    fun `bare identifier in arrow-form rules tracks the package with no allowed imports`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data
-              - domain
-
             rules:
               - data
+              - domain
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                import com.example.domain.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`com.example.data` cannot import from `com.example.domain`")
+    }
+
+    @Test
+    fun `structuralCheck should fail when rule arrow has a blank side`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            rules:
+              - data <-
             """
         )
 
@@ -775,17 +763,34 @@ class StructuralPluginTest {
             .withArguments("structuralCheck")
             .buildAndFail()
 
-        assertThat(result.output).contains("Invalid rule format: 'data'. Rules must contain <- or -> arrows.")
+        assertThat(result.output).contains("Invalid rule format: 'data <-'. Each side of an arrow must be a non-empty package token.")
+    }
+
+    @Test
+    fun `structuralCheck should fail when packages block is present`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            packages:
+              - data
+              - domain
+            rules:
+              - data <- domain
+            """
+        )
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("The `packages:` block has been removed.")
     }
 
     @Test
     fun `structuralCheck should fail when rules is a string instead of a list or map`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data
-              - domain
-
             rules: "some string"
             """
         )
@@ -803,11 +808,6 @@ class StructuralPluginTest {
     fun `structuralCheck should work with map-based syntax and single-segment packages`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data
-              - domain
-              - ui
-
             rules:
               data:
                 - domain
@@ -974,11 +974,6 @@ class StructuralPluginTest {
         File(testProjectDir, "build.gradle.kts").writeText("")
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data
-              - domain
-              - ui
-
             rules:
               - data <- domain -> ui
             """
@@ -1245,10 +1240,6 @@ class StructuralPluginTest {
     fun `structuralCheck should enforce exact match when package is suffixed with bang`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-                - "com.example.api!"
-                - "com.example.impl"
-
             rules:
                 - "com.example.api! -> com.example.impl"
             """
@@ -1277,14 +1268,48 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `bang-suffixed key in map form rules grants imports to its allowlist`() {
+        // Regression for issue #7: with the legacy `packages:` block, a `!`-suffixed
+        // key in map-form rules wouldn't match files at that exact package because
+        // `packages:` and the rules map key needed to be kept in sync. Now that
+        // tracked packages are inferred from rule operands, the key drives the match.
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            rules:
+                "dev.ionfusion.fusion!":
+                    - "dev.ionfusion.runtime.base"
+            """
+        )
+
+        File(testProjectDir, "src/main/java/dev/ionfusion/fusion/SyntaxContainer.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package dev.ionfusion.fusion;
+
+                import dev.ionfusion.runtime.base.Helper;
+
+                public class SyntaxContainer {}
+                """.trimIndent()
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
     fun `structuralCheck should match exact package when suffixed with bang on importing side`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
                 - "com.example.api!"
                 - "com.example.impl!"
-
-            rules: []
             """
         )
 
@@ -1314,10 +1339,6 @@ class StructuralPluginTest {
     fun `structuralCheck should allow imports via explicit trailing double-star`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-                - "com.example.api.**"
-                - "com.example.impl.**"
-
             rules:
                 - "com.example.impl.** -> com.example.api.**"
             """
@@ -1349,11 +1370,9 @@ class StructuralPluginTest {
     fun `structuralCheck should honor single-star wildcard for direct children only`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
                 - "com.example.core"
                 - "com.example.*.plugin"
-
-            rules: []
             """
         )
 
@@ -1383,11 +1402,9 @@ class StructuralPluginTest {
     fun `structuralCheck should match mid-path double-star wildcard`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
                 - "com.example.api"
                 - "com.**.internal"
-
-            rules: []
             """
         )
 
@@ -1417,10 +1434,6 @@ class StructuralPluginTest {
     fun `structuralCheck should fail when using bang on single-segment token`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - data!
-              - domain
-
             rules:
               - data! -> domain
             """
@@ -1450,10 +1463,6 @@ class StructuralPluginTest {
     fun `structuralCheck should fail when using wildcard on single-segment token`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - "data*"
-              - domain
-
             rules:
               - "data* -> domain"
             """
@@ -1485,11 +1494,9 @@ class StructuralPluginTest {
     fun `class rule grants single-class import in Kotlin`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
@@ -1522,11 +1529,9 @@ class StructuralPluginTest {
     fun `class rule allows only the specified class not other classes in the same package`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
@@ -1559,11 +1564,9 @@ class StructuralPluginTest {
     fun `class rule grants single-class import in Java`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
@@ -1596,11 +1599,9 @@ class StructuralPluginTest {
     fun `importer-class restriction limits which file gets permission`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.ApiBuilder <- com.example.impl.**"
@@ -1647,11 +1648,9 @@ class StructuralPluginTest {
     fun `class rule matches Java static import via enclosing class`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.Util"
@@ -1684,11 +1683,9 @@ class StructuralPluginTest {
     fun `class-name glob matches imports starting with prefix`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl._Private_*"
@@ -1721,11 +1718,9 @@ class StructuralPluginTest {
     fun `class-name glob does not match classes outside the prefix`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl._Private_*"
@@ -1758,11 +1753,9 @@ class StructuralPluginTest {
     fun `class rule across deep subpackages matches`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.**._Private_*"
@@ -1795,10 +1788,6 @@ class StructuralPluginTest {
     fun `class rule cannot deny what package rule allows`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - com.example.api
-              - com.example.impl
-
             rules:
               - "com.example.api <- com.example.impl"
 
@@ -1835,11 +1824,9 @@ class StructuralPluginTest {
     fun `baseline coexists with class rules`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
@@ -1899,10 +1886,8 @@ class StructuralPluginTest {
     fun `same-package imports remain auto-allowed regardless of class rules`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.app
-
-            rules: []
 
             classes:
               - "com.example.app.api.ApiBuilder <- com.example.app.impl.**"
@@ -1936,11 +1921,9 @@ class StructuralPluginTest {
     fun `class rule does not flip wildcard import`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.FusionException"
@@ -1973,11 +1956,9 @@ class StructuralPluginTest {
     fun `class rule does not match when file name differs from rule class name`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.ApiBuilder <- com.example.impl.**"
@@ -2012,11 +1993,9 @@ class StructuralPluginTest {
     fun `map form is equivalent to arrow form`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               "com.example.api.**":
@@ -2050,10 +2029,6 @@ class StructuralPluginTest {
     fun `empty classes section preserves existing behaviour`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
-              - com.example.api
-              - com.example.impl
-
             rules:
               - "com.example.api <- com.example.impl"
 
@@ -2087,11 +2062,9 @@ class StructuralPluginTest {
     fun `colon escape grants lowercase trailing token like Kotlin top-level fun`() {
         File(testProjectDir, "structural.yml").writeText(
             """
-            packages:
+            rules:
               - com.example.api
               - com.example.impl
-
-            rules: []
 
             classes:
               - "com.example.api.** <- com.example.impl.:helperFun"

@@ -7,28 +7,28 @@ import java.io.File
 /**
  * YAML file format should be like this example:
  *
- * packages:
- *   - local
- *   - remote
- *   - data
- *   - domain
- *   - ui
- *
- * Either this
+ * Arrow form:
  * rules:
  *   - data <- domain -> ui
  *   - local <- data
  *   - remote <- data
+ *   - legacy                  # bare identifier: tracked, no allowed imports
  *
- * Or this
+ * Or map form (key is the importer):
  * rules:
  *   domain:
  *     - ui
  *     - data
- *
  *   data:
  *     - local
  *     - remote
+ *   legacy: []                # tracked, no allowed imports
+ *
+ * Tracked packages are inferred from the identifiers used in `rules:`. Any
+ * package that appears on either side of an arrow rule, or as a key/value in
+ * the map form, is tracked. A bare identifier (no arrow) registers a package
+ * as tracked with no allowed imports. Imports from packages outside the
+ * tracked set are unconditionally allowed.
  *
  * Package tokens accept Ant-style globs on multi-segment (fully-qualified)
  * paths. See [parseTrackedPackage] for the supported grammar:
@@ -62,22 +62,22 @@ import java.io.File
 fun File.parseYamlImportRules(): StructuralData? =
     if (exists()) {
         val data: Map<String, Any> = Yaml().load(inputStream())
+        if (data.containsKey("packages")) {
+            throw GradleException(
+                "The `packages:` block has been removed. Tracked packages are now inferred from " +
+                    "`rules:`. Delete the `packages:` block; for any entry that doesn't already " +
+                    "appear in a rule, add it as a bare list item under `rules:` (e.g. `- legacy`) " +
+                    "or in map form with an empty value (`legacy: []`)."
+            )
+        }
         val allowedListPerPackage = mutableMapOf<TrackedPackage, MutableList<TrackedPackage>>()
-        val rawCheckedPackages = (data["packages"] as? List<*>)?.filterIsInstance<String>()
         val rawRules = data["rules"]
         val rawClassRules = data["classes"]
 
         if (rawRules == null && rawClassRules == null) {
             throw GradleException("No rules or classes specified in config file")
         }
-        if (rawCheckedPackages.isNullOrEmpty()) {
-            throw GradleException("No packages specified to check in config file")
-        }
 
-        val checkedPackages = rawCheckedPackages.map { parseTrackedPackage(it) }
-        checkedPackages.forEach {
-            allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
-        }
         when (rawRules) {
             null -> Unit
             is List<*> -> {
@@ -88,11 +88,16 @@ fun File.parseYamlImportRules(): StructuralData? =
                         val parts = regex.split(rule).map { it.trim() }
                         val arrows = regex.findAll(rule).map { it.value }.toList()
 
-                        if (arrows.isEmpty() || parts.any { it.isBlank() }) {
-                            throw GradleException("Invalid rule format: '$rule'. Rules must contain <- or -> arrows.")
+                        if (parts.any { it.isBlank() }) {
+                            throw GradleException(
+                                "Invalid rule format: '$rule'. Each side of an arrow must be a non-empty package token."
+                            )
                         }
 
                         val parsedParts = parts.map { parseTrackedPackage(it) }
+                        parsedParts.forEach {
+                            allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
+                        }
 
                         arrows.forEachIndexed { index, arrow ->
                             val source = parsedParts[index]
@@ -120,10 +125,17 @@ fun File.parseYamlImportRules(): StructuralData? =
             else -> throw GradleException("Invalid rules format in config file. Rules must be a list of arrow rules or a map of package dependencies.")
         }
 
+        if (allowedListPerPackage.isEmpty()) {
+            throw GradleException(
+                "No tracked packages found. The `rules:` block must declare at least one package " +
+                    "(via an arrow rule, a map entry, or a bare list item like `- legacy`)."
+            )
+        }
+
         val classRules = parseClassRulesSection(rawClassRules)
 
         StructuralData(
-            checkedPackages,
+            allowedListPerPackage.keys.toList(),
             allowedListPerPackage,
             classRules,
         )
@@ -190,6 +202,7 @@ private fun MutableMap<TrackedPackage, MutableList<TrackedPackage>>.addAllowedPa
             (getOrDefault(parsedKey, emptyList()) + parsedValues)
                 .distinct()
                 .toMutableList()
+        parsedValues.forEach { computeIfAbsent(it) { mutableListOf() } }
     }
 }
 
