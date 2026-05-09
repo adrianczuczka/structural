@@ -311,4 +311,59 @@ class YamlParserTest {
 
         assertThat(data.warnings).isEmpty()
     }
+
+    @Test
+    fun `map-form class rule with untracked imported package is rejected`() {
+        // Same validation must run for map-form class rules, not just arrow-form.
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.api
+                classAllowlist:
+                  "com.example.api.**":
+                    - com.example.impl.FusionException
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("imported package")
+        assertThat(ex.message).contains("com.example.impl")
+    }
+
+    @Test
+    fun `validation rejects when one rule in a multi-rule list is invalid`() {
+        // A valid rule preceding an invalid one must still trigger the error;
+        // validation must not short-circuit on the first valid rule.
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.api
+                  - com.example.impl
+                classAllowlist:
+                  - "com.example.api.** <- com.example.impl.FusionException"
+                  - "com.example.api.** <- com.example.missing.SomeClass"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("com.example.missing")
+    }
+
+    @Test
+    fun `validation accepts class rule whose double-star can match a tracked single-segment`() {
+        // The `**` in `com.example.api.**` can expand to any segment, so it
+        // overlaps with a tracked single-segment `api` (concrete: `com.example.api`).
+        // This is a known correct behavior — pinned to prevent regression.
+        val data = yaml(
+            """
+            rules:
+              - api
+              - impl
+            classAllowlist:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        ).parseYamlImportRules()!!
+
+        assertThat(data.warnings).isEmpty()
+    }
 }

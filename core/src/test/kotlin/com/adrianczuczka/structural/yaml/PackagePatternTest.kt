@@ -127,4 +127,97 @@ class PackagePatternTest {
         assertThat(literal).isGreaterThan(singleStar)
         assertThat(singleStar).isGreaterThan(doubleStar)
     }
+
+    private fun overlaps(a: String, b: String): Boolean =
+        overlap(parseTrackedPackage(a), parseTrackedPackage(b))
+
+    @Test
+    fun `overlap is reflexive`() {
+        assertThat(overlaps("com.example.api", "com.example.api")).isTrue()
+        assertThat(overlaps("data", "data")).isTrue()
+        assertThat(overlaps("com.example.api!", "com.example.api!")).isTrue()
+    }
+
+    @Test
+    fun `overlap of disjoint multi-segment paths is false`() {
+        assertThat(overlaps("com.example.api", "com.example.impl")).isFalse()
+        assertThat(overlaps("com.foo", "com.bar")).isFalse()
+    }
+
+    @Test
+    fun `bare multi-segment overlaps with subpackage tracked`() {
+        // tracked com.example.api covers files under com.example.api.**
+        // class rule com.example.api.X (parsed as com.example.api) → overlap.
+        assertThat(overlaps("com.example.api", "com.example.api")).isTrue()
+    }
+
+    @Test
+    fun `trailing double-star overlaps with bare equivalent`() {
+        assertThat(overlaps("com.example.api.**", "com.example.api")).isTrue()
+    }
+
+    @Test
+    fun `exact bang overlaps with broader pattern that covers it`() {
+        assertThat(overlaps("com.example.api!", "com.example.**")).isTrue()
+        assertThat(overlaps("com.example.api!", "com.example.api")).isTrue()
+    }
+
+    @Test
+    fun `exact bang does not overlap with disjoint exact bang`() {
+        assertThat(overlaps("com.example.api!", "com.example.impl!")).isFalse()
+    }
+
+    @Test
+    fun `single-segment overlaps with multi-segment containing that segment`() {
+        assertThat(overlaps("api", "com.example.api")).isTrue()
+        assertThat(overlaps("api", "com.example.api.**")).isTrue()
+        assertThat(overlaps("api", "com.example.api!")).isTrue()
+    }
+
+    @Test
+    fun `single-segment does not overlap with multi-segment that lacks the segment`() {
+        assertThat(overlaps("data", "com.example.api")).isFalse()
+        assertThat(overlaps("data", "com.example.impl!")).isFalse()
+    }
+
+    @Test
+    fun `single-segment overlaps with multi-segment containing double-star`() {
+        // `**` can match any segment, including the single-segment value, so
+        // `com.example.api.**` could match a file at `com.example.api.data.foo`,
+        // which is also tracked by single-segment `data`.
+        assertThat(overlaps("data", "com.example.api.**")).isTrue()
+        assertThat(overlaps("anything", "com.**.internal")).isTrue()
+    }
+
+    @Test
+    fun `single-segment overlaps with multi-segment containing single-star`() {
+        assertThat(overlaps("foo", "com.*.api")).isTrue()
+    }
+
+    @Test
+    fun `disjoint single-segment patterns do not overlap`() {
+        assertThat(overlaps("data", "domain")).isFalse()
+    }
+
+    @Test
+    fun `mid-path double-star overlaps with shallower tracked match`() {
+        // `com.**.api` should overlap with `com.api` because `**` can match
+        // zero segments.
+        assertThat(overlaps("com.**.api", "com.api")).isTrue()
+    }
+
+    @Test
+    fun `mid-path double-star overlaps with deeper tracked match`() {
+        assertThat(overlaps("com.**.api", "com.example.api")).isTrue()
+    }
+
+    @Test
+    fun `single-star segment overlaps with literal that fits`() {
+        assertThat(overlaps("com.*.api", "com.example.api")).isTrue()
+    }
+
+    @Test
+    fun `wildcard pattern does not overlap with disjoint literal`() {
+        assertThat(overlaps("com.*.api", "com.foo.bar")).isFalse()
+    }
 }

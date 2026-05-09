@@ -37,22 +37,25 @@ internal fun validateClassRules(
             )
         }
 
-        // Case 4: importer and imported overlap with the same tracked package
-        // → at runtime, the import is auto-allowed (same tracked hierarchy),
-        // so the class rule never fires. Emit a warning.
-        val sharedTracked = tracked.firstOrNull {
-            overlap(rule.importer.packagePattern, it) && overlap(rule.imported.packagePattern, it)
-        }
-        if (sharedTracked != null) {
+        // Resolve each side to the most-specific tracked package that overlaps,
+        // mirroring the runtime's specificity-ordered match selection.
+        val byMostSpecific = tracked.sortedByDescending { it.specificity() }
+        val importerTracked = byMostSpecific.first { overlap(rule.importer.packagePattern, it) }
+        val importedTracked = byMostSpecific.first { overlap(rule.imported.packagePattern, it) }
+
+        // Case 4: both sides resolve to the same multi-segment tracked package
+        // → at runtime, the import is auto-allowed (StructuralWorkAction returns
+        // early when importedTrackedPackage == multiSegmentMatch), so the class
+        // rule never fires. Single-segment tracked has no equivalent auto-allow
+        // path, so skip it.
+        if (importerTracked == importedTracked && !importerTracked.isSingleSegment) {
             warnings += "class rule ${rule.display()} has no effect — both sides fall under " +
-                "tracked package `$sharedTracked`, so imports between them are auto-allowed."
+                "tracked package `$importerTracked`, so imports between them are auto-allowed."
             return@forEach
         }
 
         // Case 3: package rule already grants the cross-package import → class
         // rule is redundant. Emit a warning.
-        val importerTracked = tracked.first { overlap(rule.importer.packagePattern, it) }
-        val importedTracked = tracked.first { overlap(rule.imported.packagePattern, it) }
         if (importedTracked in (rules[importerTracked] ?: emptyList())) {
             warnings += "class rule ${rule.display()} has no effect — package rule already " +
                 "permits `$importerTracked` to import from `$importedTracked`."
