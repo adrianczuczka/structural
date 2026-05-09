@@ -350,6 +350,42 @@ class YamlParserTest {
     }
 
     @Test
+    fun `right-arrow class rule routes importer and imported correctly through validation`() {
+        // `->` swaps left/right at parse time; the error message must still
+        // refer to the side as "importer" or "imported" by semantic role.
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.api
+                classAllowlist:
+                  - "com.example.impl.Y -> com.example.api.X"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("imported package")
+        assertThat(ex.message).contains("com.example.impl")
+    }
+
+    @Test
+    fun `class portion does not change package-coverage validation`() {
+        // Class-name globs and explicit class names attach to the package
+        // portion the same way; coverage validation looks only at the package.
+        val data = yaml(
+            """
+            rules:
+              - com.example.api
+              - com.example.impl
+            classAllowlist:
+              - "com.example.api.** <- com.example.impl._Private_*"
+            """
+        ).parseYamlImportRules()!!
+
+        assertThat(data.classRules).hasSize(1)
+        assertThat(data.warnings).isEmpty()
+    }
+
+    @Test
     fun `validation accepts class rule whose double-star can match a tracked single-segment`() {
         // The `**` in `com.example.api.**` can expand to any segment, so it
         // overlaps with a tracked single-segment `api` (concrete: `com.example.api`).

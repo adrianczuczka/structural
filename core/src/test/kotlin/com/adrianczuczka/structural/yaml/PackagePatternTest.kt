@@ -220,4 +220,39 @@ class PackagePatternTest {
     fun `wildcard pattern does not overlap with disjoint literal`() {
         assertThat(overlaps("com.*.api", "com.foo.bar")).isFalse()
     }
+
+    @Test
+    fun `overlap is symmetric across pattern shapes`() {
+        // The bidirectional candidate testing should yield the same answer
+        // regardless of argument order.
+        val pairs = listOf(
+            "com.example.api" to "com.example.api",
+            "com.example.api" to "com.example.impl",
+            "com.example.api.**" to "com.example.api",
+            "com.example.api!" to "com.example.**",
+            "com.*.api" to "com.example.api",
+            "com.**.internal" to "com.internal",
+            "data" to "com.example.data",
+            "data" to "com.example.api.**",
+            "data" to "domain",
+        )
+        pairs.forEach { (a, b) ->
+            assertThat(overlaps(a, b)).isEqualTo(overlaps(b, a))
+        }
+    }
+
+    @Test
+    fun `leading double-star overlaps with single-segment that lives at the suffix`() {
+        // `**.private` matches `private`, `foo.private`, `foo.bar.private`, etc.
+        // Single-segment `private` matches any package containing a `private`
+        // segment, so they overlap on (e.g.) `foo.private`.
+        assertThat(overlaps("**.private", "private")).isTrue()
+        assertThat(overlaps("**.private", "com.example.private")).isTrue()
+    }
+
+    @Test
+    fun `leading double-star overlaps with multi-segment ending in matching suffix`() {
+        assertThat(overlaps("**.private", "com.example.private")).isTrue()
+        assertThat(overlaps("**.private", "com.example.api")).isFalse()
+    }
 }
