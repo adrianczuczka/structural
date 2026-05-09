@@ -181,16 +181,17 @@ rules:
   - dev.ionfusion.runtime._private! -> dev.ionfusion.runtime!
 ```
 
-### Class rules (additive)
+### Class allowlist (additive)
 
 Real codebases always seem to have a few cases where one specific class needs to cross a boundary
 that the package rules don't allow — a shared exception, a builder, a handful of internals you're
-mid-refactor on. The optional `classes:` section is for those: it lets you punch a class-shaped
-hole through a package rule without weakening the package rule itself.
+mid-refactor on. The optional `classAllowlist:` section is for those: it lets you punch a
+class-shaped hole through a package rule without weakening the package rule itself.
 
-Class rules are **purely additive** — they can grant a cross-package import that package rules
-would otherwise reject, but they can't take away an import that package rules already allow. Use
-them sparingly, and prefer fixing the package boundary if the list starts growing.
+The name says it: it's an *allowlist*, not a constraint. Entries here grant cross-package imports
+that package rules would otherwise reject; they never take away an import that package rules
+already allow. Use them sparingly, and prefer fixing the package boundary if the list starts
+growing.
 
 ```yaml
 rules:
@@ -198,15 +199,20 @@ rules:
   - com.example.api
   - com.example.impl
 
-classes:
+classAllowlist:
   - "com.example.api.** <- com.example.impl.FusionException"
   - "com.example.api.ApiBuilder <- com.example.impl.**"
   - "com.example.api.** <- com.example.impl._Private_*"
   - "com.example.api.** <- com.example.impl.**._Private_*"
 ```
 
-(A future release may add a deny-exception form for the inverse case — granting most things and
-carving out a few denials. Open an issue if you need it.)
+Every package referenced by a `classAllowlist:` entry must also appear in `rules:` — otherwise
+the rule has nothing to grant against and Structural refuses to load the config. Entries that are
+already permitted by package rules, or where both sides fall under the same tracked package, log a
+warning at task time so you can clean them up.
+
+(A future release may add a deny-form counterpart — `classDenylist:` — for the inverse case where
+you want broad permission with a few carved-out denials. Open an issue if you need it.)
 
 #### Token grammar
 
@@ -244,7 +250,7 @@ portion's `**` for cross-subpackage matching.
 Same map form as `rules:`, with the importer as the key:
 
 ```yaml
-classes:
+classAllowlist:
   "com.example.api.**":
     - com.example.impl.FusionException
     - com.example.impl._Private_*

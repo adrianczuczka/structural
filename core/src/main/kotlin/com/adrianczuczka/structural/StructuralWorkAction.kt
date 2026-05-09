@@ -50,12 +50,13 @@ private fun checkForViolations(
     val yaml = rulesFile.parseYamlImportRules()
         ?: throw GradleException("Could not parse config file")
 
-    val (checkedPackages, rules, classRules) = yaml
+    val (checkedPackages, rules, classRules, warnings) = yaml
 
     println("📜 Allowed import rules loaded: $rules")
     if (classRules.isNotEmpty()) {
         println("📜 Class rules loaded: ${classRules.size} rule(s)")
     }
+    warnings.forEach { println("⚠️  $it") }
 
     val violations = mutableMapOf<File, MutableList<ReportedViolation>>()
 

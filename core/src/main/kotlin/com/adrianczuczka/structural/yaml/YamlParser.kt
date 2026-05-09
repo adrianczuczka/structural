@@ -40,21 +40,27 @@ import java.io.File
  * Single-segment tokens (like `data`) keep the legacy last-segment matching
  * and cannot carry wildcards or `!`.
  *
- * An optional top-level `classes:` section grants fine-grained class-level
- * permissions on top of the package-level rules. Class rules are purely
- * additive: they can permit a cross-package import that package rules would
- * otherwise reject. They never deny what package rules allow.
+ * An optional top-level `classAllowlist:` section grants fine-grained
+ * class-level permissions on top of the package-level rules. Class rules are
+ * purely additive: they permit a cross-package import that package rules
+ * would otherwise reject. They never deny what package rules allow.
  *
- * classes:
+ * classAllowlist:
  *   - "com.example.api.** <- com.example.impl.FusionException"
  *   - "com.example.api.ApiBuilder <- com.example.impl.**"
  *
  * Or in map form (key is the importer):
  *
- * classes:
+ * classAllowlist:
  *   "com.example.api.**":
  *     - com.example.impl.FusionException
  *     - com.example.impl._Private_*
+ *
+ * Every package referenced by a class rule must be tracked in `rules:`. If
+ * the importer's or imported's package portion isn't covered by any tracked
+ * package, the rule is rejected at parse time — at runtime it would do
+ * nothing (the file or import wouldn't be checked at all), so the silent
+ * no-op is converted into an actionable error.
  *
  * See [parseClassRuleToken] for the disambiguation rule between package and
  * class portions of a token.
@@ -70,12 +76,19 @@ fun File.parseYamlImportRules(): StructuralData? =
                     "or in map form with an empty value (`legacy: []`)."
             )
         }
+        if (data.containsKey("classes")) {
+            throw GradleException(
+                "The `classes:` block has been renamed to `classAllowlist:` to make its purpose " +
+                    "explicit — it's an allowlist of class-level imports, not a constraint. " +
+                    "Rename `classes:` to `classAllowlist:` in your config."
+            )
+        }
         val allowedListPerPackage = mutableMapOf<TrackedPackage, MutableList<TrackedPackage>>()
         val rawRules = data["rules"]
-        val rawClassRules = data["classes"]
+        val rawClassRules = data["classAllowlist"]
 
         if (rawRules == null && rawClassRules == null) {
-            throw GradleException("No rules or classes specified in config file")
+            throw GradleException("No rules or classAllowlist specified in config file")
         }
 
         when (rawRules) {
@@ -133,11 +146,13 @@ fun File.parseYamlImportRules(): StructuralData? =
         }
 
         val classRules = parseClassRulesSection(rawClassRules)
+        val validation = validateClassRules(classRules, allowedListPerPackage)
 
         StructuralData(
             allowedListPerPackage.keys.toList(),
             allowedListPerPackage,
             classRules,
+            validation.warnings,
         )
     } else {
         null
@@ -183,7 +198,7 @@ private fun parseClassRulesSection(raw: Any?): List<ClassRule> {
             }
         }
         else -> throw GradleException(
-            "Invalid classes format in config file. Classes must be a list of arrow rules or a map of class dependencies."
+            "Invalid classAllowlist format in config file. classAllowlist must be a list of arrow rules or a map of class dependencies."
         )
     }
     return rules.distinct()
@@ -210,4 +225,5 @@ data class StructuralData internal constructor(
     internal val checkedPackages: List<TrackedPackage>,
     internal val rules: Map<TrackedPackage, List<TrackedPackage>>,
     internal val classRules: List<ClassRule> = emptyList(),
+    internal val warnings: List<String> = emptyList(),
 )

@@ -33,7 +33,7 @@ class YamlParserTest {
             """
             rules:
               - data <- domain
-            classes: []
+            classAllowlist: []
             """
         ).parseYamlImportRules()
 
@@ -47,7 +47,7 @@ class YamlParserTest {
             rules:
               - com.example.api
               - com.example.impl
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         ).parseYamlImportRules()!!
@@ -67,7 +67,7 @@ class YamlParserTest {
             rules:
               - com.example.api
               - com.example.impl
-            classes:
+            classAllowlist:
               - "com.example.impl.FusionException -> com.example.api.**"
             """
         ).parseYamlImportRules()!!
@@ -86,7 +86,7 @@ class YamlParserTest {
             rules:
               - com.example.api
               - com.example.impl
-            classes:
+            classAllowlist:
               "com.example.api.**":
                 - com.example.impl.FusionException
                 - com.example.impl._Private_*
@@ -108,7 +108,7 @@ class YamlParserTest {
             rules:
               - com.example.api
               - com.example.impl
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         ).parseYamlImportRules()!!
@@ -120,7 +120,7 @@ class YamlParserTest {
                 rules:
                   - com.example.api
                   - com.example.impl
-                classes:
+                classAllowlist:
                   "com.example.api.**":
                     - com.example.impl.FusionException
                 """.trimIndent()
@@ -138,7 +138,7 @@ class YamlParserTest {
                 rules:
                   - com.example.api
                   - com.example.impl
-                classes:
+                classAllowlist:
                   - "com.example.api.**"
                 """
             ).parseYamlImportRules()
@@ -180,7 +180,7 @@ class YamlParserTest {
         val ex = assertThrows<GradleException> {
             yaml(
                 """
-                classes:
+                classAllowlist:
                   - "com.example.api.** <- com.example.impl.FusionException"
                 """
             ).parseYamlImportRules()
@@ -205,7 +205,7 @@ class YamlParserTest {
     }
 
     @Test
-    fun `missing both rules and classes is rejected`() {
+    fun `missing both rules and classAllowlist is rejected`() {
         val ex = assertThrows<GradleException> {
             yaml(
                 """
@@ -214,6 +214,101 @@ class YamlParserTest {
                 """
             ).parseYamlImportRules()
         }
-        assertThat(ex.message).contains("rules or classes")
+        assertThat(ex.message).contains("rules or classAllowlist")
+    }
+
+    @Test
+    fun `legacy classes block triggers a migration error`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.api
+                  - com.example.impl
+                classes:
+                  - "com.example.api.** <- com.example.impl.FusionException"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("`classes:` block has been renamed to `classAllowlist:`")
+    }
+
+    @Test
+    fun `class rule with untracked importer package is rejected`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.foo
+                classAllowlist:
+                  - "com.example.api.X <- com.example.impl.Y"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("importer package")
+        assertThat(ex.message).contains("com.example.api")
+        assertThat(ex.message).contains("no rule in `rules:` covers it")
+    }
+
+    @Test
+    fun `class rule with untracked imported package is rejected`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.api
+                classAllowlist:
+                  - "com.example.api.X <- com.example.impl.Y"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).contains("imported package")
+        assertThat(ex.message).contains("com.example.impl")
+    }
+
+    @Test
+    fun `class rule whose sides fall under the same tracked package emits a warning`() {
+        val data = yaml(
+            """
+            rules:
+              - com.example.app
+            classAllowlist:
+              - "com.example.app.api.ApiBuilder <- com.example.app.impl.**"
+            """
+        ).parseYamlImportRules()!!
+
+        assertThat(data.warnings).hasSize(1)
+        assertThat(data.warnings.single()).contains("both sides fall under tracked package")
+        assertThat(data.warnings.single()).contains("com.example.app")
+    }
+
+    @Test
+    fun `class rule redundant with package rule emits a warning`() {
+        val data = yaml(
+            """
+            rules:
+              - "com.example.api <- com.example.impl"
+            classAllowlist:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        ).parseYamlImportRules()!!
+
+        assertThat(data.warnings).hasSize(1)
+        assertThat(data.warnings.single()).contains("package rule already permits")
+    }
+
+    @Test
+    fun `effective class rule produces no warnings`() {
+        val data = yaml(
+            """
+            rules:
+              - com.example.api
+              - com.example.impl
+            classAllowlist:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        ).parseYamlImportRules()!!
+
+        assertThat(data.warnings).isEmpty()
     }
 }

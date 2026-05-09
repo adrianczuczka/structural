@@ -788,6 +788,59 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `structuralCheck should fail when legacy classes block is present`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            rules:
+              - com.example.api
+              - com.example.impl
+            classes:
+              - "com.example.api.** <- com.example.impl.FusionException"
+            """
+        )
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("`classes:` block has been renamed to `classAllowlist:`")
+    }
+
+    @Test
+    fun `structuralCheck surfaces warnings from ineffective class rules`() {
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            rules:
+              - com.example.app
+            classAllowlist:
+              - "com.example.app.api.ApiBuilder <- com.example.app.impl.**"
+            """
+        )
+
+        File(testProjectDir, "src/main/kotlin/com/example/app/api/ApiBuilder.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.app.api
+
+                class ApiBuilder
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build()
+
+        assertThat(result.output).contains("⚠️")
+        assertThat(result.output).contains("both sides fall under tracked package")
+    }
+
+    @Test
     fun `structuralCheck should fail when rules is a string instead of a list or map`() {
         File(testProjectDir, "structural.yml").writeText(
             """
@@ -1498,7 +1551,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         )
@@ -1533,7 +1586,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         )
@@ -1568,7 +1621,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         )
@@ -1603,7 +1656,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.ApiBuilder <- com.example.impl.**"
             """
         )
@@ -1652,7 +1705,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.Util"
             """
         )
@@ -1687,7 +1740,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl._Private_*"
             """
         )
@@ -1722,7 +1775,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl._Private_*"
             """
         )
@@ -1757,7 +1810,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.**._Private_*"
             """
         )
@@ -1791,7 +1844,7 @@ class StructuralPluginTest {
             rules:
               - "com.example.api <- com.example.impl"
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.OnlyThisOne"
             """
         )
@@ -1828,7 +1881,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         )
@@ -1889,7 +1942,7 @@ class StructuralPluginTest {
             rules:
               - com.example.app
 
-            classes:
+            classAllowlist:
               - "com.example.app.api.ApiBuilder <- com.example.app.impl.**"
             """
         )
@@ -1925,7 +1978,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.FusionException"
             """
         )
@@ -1960,7 +2013,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.ApiBuilder <- com.example.impl.**"
             """
         )
@@ -1997,7 +2050,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               "com.example.api.**":
                 - com.example.impl.FusionException
             """
@@ -2032,7 +2085,7 @@ class StructuralPluginTest {
             rules:
               - "com.example.api <- com.example.impl"
 
-            classes: []
+            classAllowlist: []
             """
         )
 
@@ -2066,7 +2119,7 @@ class StructuralPluginTest {
               - com.example.api
               - com.example.impl
 
-            classes:
+            classAllowlist:
               - "com.example.api.** <- com.example.impl.:helperFun"
             """
         )

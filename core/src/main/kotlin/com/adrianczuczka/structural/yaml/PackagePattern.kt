@@ -107,6 +107,48 @@ internal fun compilePackagePattern(pattern: String): Regex {
 }
 
 /**
+ * True if there exists at least one concrete package that both [a] and [b]
+ * would match at runtime.
+ *
+ * Two strategies, applied in order:
+ * - If either side is a single-segment token (e.g. `data`), overlap reduces
+ *   to "does the multi-segment side contain a segment that could match the
+ *   single one?" — a literal `data`, `*`, or `**` segment.
+ * - Otherwise both are multi-segment patterns. Generate a representative
+ *   concrete package from each (replacing wildcards with placeholder
+ *   segments) and check whether the other pattern's regex matches it. If
+ *   either direction matches, the patterns overlap.
+ *
+ * The representative-package approach has known false negatives for unusual
+ * patterns with mid-path `**` collisions, but covers all common shapes.
+ */
+internal fun overlap(a: TrackedPackage, b: TrackedPackage): Boolean {
+    if (a == b) return true
+    if (a.isSingleSegment) return overlapsSingleMulti(a, b)
+    if (b.isSingleSegment) return overlapsSingleMulti(b, a)
+    return overlapsMultiMulti(a, b)
+}
+
+private fun overlapsSingleMulti(single: TrackedPackage, multi: TrackedPackage): Boolean {
+    val singleSeg = single.pattern
+    val multiBody = if (multi.pattern.endsWith("!")) multi.pattern.dropLast(1) else multi.pattern
+    return multiBody.split(".").any { it == singleSeg || it == "*" || it == "**" }
+}
+
+private fun overlapsMultiMulti(a: TrackedPackage, b: TrackedPackage): Boolean {
+    val aCandidate = a.candidatePackage()
+    val bCandidate = b.candidatePackage()
+    return b.matches(aCandidate) || a.matches(bCandidate)
+}
+
+private fun TrackedPackage.candidatePackage(): String {
+    val body = if (pattern.endsWith("!")) pattern.dropLast(1) else pattern
+    return body.split(".").joinToString(".") { seg ->
+        if (seg == "*" || seg == "**") "_x_" else seg
+    }
+}
+
+/**
  * Rough specificity score — higher = more specific. Used to break ties when
  * multiple tracked packages match the same file/import (literal wins over
  * `*`, `*` over `**`, longer pattern over shorter).
