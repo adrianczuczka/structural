@@ -31,6 +31,13 @@ gradlePlugin {
             description =
                 "A lightweight Gradle plugin that enforces structured package dependencies."
         }
+        create("structuralAggregation") {
+            id = "com.adrianczuczka.structural.aggregation"
+            implementationClass = "com.adrianczuczka.structural.StructuralAggregationPlugin"
+            displayName = "Structural Aggregation"
+            description =
+                "Aggregates structural findings from all modules into shared baseline files."
+        }
     }
 }
 

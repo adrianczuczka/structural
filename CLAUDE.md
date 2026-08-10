@@ -29,6 +29,10 @@ The plugin lives in `core/`. The `kotlin-test-app/` and `java-test-app/` modules
 
 **Plugin flow:** `StructuralPlugin` registers Gradle tasks → `StructuralTask` submits work via Gradle's Worker API with classloader isolation → `StructuralWorkAction` performs the actual analysis.
 
+**Source discovery** (in priority order): explicit `structural.source` → the `main` source set when a JVM plugin is applied → a glob over the project directory (which prunes the build directory and nested git checkouts, e.g. worktrees added inside the project). `structuralCheck` is cacheable with relative path sensitivity, so results relocate across worktrees/checkouts.
+
+**Aggregation:** `StructuralAggregationPlugin` (`com.adrianczuczka.structural.aggregation`, applied at the root) registers `structuralAggregateBaseline`, which consumes each module's findings file through a `structural-findings` Category variant – no cross-project task registration, Isolated-Projects safe.
+
 **File parsing:** Kotlin files are parsed using `KtPsiFactory` from `kotlin-compiler-embeddable` (via `PsiFactoryProvider` singleton). Java files are parsed with regex. Both paths produce a `ParsedSourceFile` (defined in `Util.kt`).
 
 **Package checking algorithm** (in `StructuralWorkAction`): For each source file, every segment of its package name is checked against the tracked packages list. If a segment matches, that layer's rules are enforced against all imports. This means a file in `com.example.data.local` is checked against `data`'s rules. Imports within the same tracked package hierarchy (e.g., `data.local` → `data.remote`) are allowed.

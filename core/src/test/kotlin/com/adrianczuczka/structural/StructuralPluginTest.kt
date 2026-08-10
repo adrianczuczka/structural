@@ -4,6 +4,7 @@ package com.adrianczuczka.structural
 import com.google.common.truth.Truth.assertThat
 import org.gradle.testkit.runner.BuildResult
 import org.gradle.testkit.runner.GradleRunner
+import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -150,6 +151,143 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `structuralCheck should ignore sources inside nested git checkouts`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                import com.example.domain.SomeClass // ✅ Allowed import
+
+                class Test
+                """
+            )
+        }
+        // Simulate a git worktree added inside the project: a nested checkout whose
+        // .git is a file pointing at the shared repository.
+        File(testProjectDir, ".worktrees/feature/.git").apply {
+            parentFile.mkdirs()
+            writeText("gitdir: /elsewhere/.git/worktrees/feature")
+        }
+        File(testProjectDir, ".worktrees/feature/src/main/kotlin/com/example/ui/Bad.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui
+
+                import com.example.data.SomeClass // 🚨 Forbidden, but in another working copy
+
+                class Bad
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .build() // Should pass
+
+        assertThat(result.output).doesNotContain("cannot import")
+    }
+
+    @Test
+    fun `structuralCheck should use source sets when a JVM plugin is applied`() {
+        File(testProjectDir, "build.gradle.kts").writeText(
+            """
+            plugins {
+                java
+                id("com.adrianczuczka.structural")
+            }
+            repositories {
+                mavenCentral()
+            }
+            sourceSets {
+                main {
+                    java {
+                        srcDir("gen/java")
+                    }
+                }
+            }
+            """
+        )
+        // Registered custom source dir: must be checked even though the glob would miss it.
+        File(testProjectDir, "gen/java/com/example/ui/Bad.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui;
+
+                import com.example.data.SomeClass;
+
+                public class Bad {}
+                """
+            )
+        }
+        // Outside every source set: the glob would find it, source sets must not.
+        File(testProjectDir, "stray/src/main/java/com/example/ui/Stray.java").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.ui;
+
+                import com.example.data.OtherClass;
+
+                public class Stray {}
+                """
+            )
+        }
+
+        val result = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+            .buildAndFail()
+
+        assertThat(result.output).contains("Bad.java")
+        assertThat(result.output).doesNotContain("Stray.java")
+    }
+
+    @Test
+    fun `structuralCheck is up-to-date on unchanged inputs and reruns when the rules change`() {
+        File(testProjectDir, "src/main/kotlin/com/example/data/Test.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package com.example.data
+
+                import com.example.domain.SomeClass
+
+                class Test
+                """
+            )
+        }
+
+        fun runCheck() = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+
+        assertThat(runCheck().build().task(":structuralCheck")!!.outcome)
+            .isEqualTo(TaskOutcome.SUCCESS)
+        assertThat(runCheck().build().task(":structuralCheck")!!.outcome)
+            .isEqualTo(TaskOutcome.UP_TO_DATE)
+
+        // Same path, new content: drop domain from data's allowlist. The content
+        // change alone must invalidate the task.
+        File(testProjectDir, "structural.yml").writeText(
+            """
+            rules:
+              - data <- ui
+            """
+        )
+
+        val result = runCheck().buildAndFail()
+        assertThat(result.output).contains("`com.example.data` cannot import from `com.example.domain`")
+    }
+
+    @Test
     fun `structuralCheck should fail when yml file is missing`() {
         File(testProjectDir, "structural.yml").delete() // Remove structural.yml
 
@@ -233,7 +371,7 @@ class StructuralPluginTest {
                 mavenCentral()
             }
             structural {
-                config = "${'$'}rootDir/custom-structural.yml"
+                config.set(file("custom-structural.yml"))
             }
             """
         )
@@ -1024,7 +1162,13 @@ class StructuralPluginTest {
             include(":moduleB")
             """
         )
-        File(testProjectDir, "build.gradle.kts").writeText("")
+        File(testProjectDir, "build.gradle.kts").writeText(
+            """
+            plugins {
+                id("com.adrianczuczka.structural.aggregation")
+            }
+            """
+        )
         File(testProjectDir, "structural.yml").writeText(
             """
             rules:
@@ -1044,8 +1188,8 @@ class StructuralPluginTest {
                         mavenCentral()
                     }
                     structural {
-                        config = "${'$'}rootDir/structural.yml"
-                        baseline = "$baseline"
+                        config.set(file("${'$'}rootDir/structural.yml"))
+                        baseline.set(file("$baseline"))
                     }
                     """
                 )

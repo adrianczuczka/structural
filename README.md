@@ -57,7 +57,7 @@ to your build file; if you'd rather keep it somewhere else, point at it explicit
 
 ```kts
 structural {
-    config = "./structural.yml"
+    config.set(file("structural.yml"))
 }
 ```
 
@@ -279,6 +279,25 @@ A few sharp edges worth knowing about up front:
   `member` is an object member or a top-level declaration, so treat them the same when writing
   rules.
 
+### Which sources are checked
+
+When a JVM plugin (`java`, `kotlin("jvm")`, …) is applied, Structural checks the `main` source
+set – including any custom `srcDir` you've registered. Without one, it falls back to scanning the
+project directory for `**/src/main/kotlin` and `**/src/main/java` layouts; that scan skips the
+build directory and any nested checkout (a directory containing a `.git` entry, such as a git
+worktree added inside the project). To take full control, set `source` explicitly – it overrides
+both:
+
+```kts
+structural {
+    source.from("src/main/kotlin", "src/generated")
+}
+```
+
+`structuralCheck` is incremental and cacheable: it only reruns when the sources, rules, or
+baseline change, and its result is shared through the build cache – including across git worktrees
+or other checkouts of the same repository.
+
 ### Run the check
 
 ```bash
@@ -308,12 +327,12 @@ fail on *new* violations:
 ./gradlew structuralGenerateBaseline
 ```
 
-That writes a baseline file (default: `$rootDir/baseline.xml`) listing the existing issues, which
-`structuralCheck` will then ignore. Point at a different location with:
+That writes a baseline file (default: `baseline.xml` in the project directory) listing the
+existing issues, which `structuralCheck` will then ignore. Point at a different location with:
 
 ```kts
 structural {
-    baseline = "./baseline.xml"
+    baseline.set(file("baseline.xml"))
 }
 ```
 
@@ -324,11 +343,29 @@ writes its own baseline at the path it configured. That's the convention you'll 
 detekt and ktlint, and it's the default if you don't think about it.
 
 If you want a *single* shared baseline across modules instead — every module pointing at one
-`$rootDir/baseline.xml`, say — invoke the opt-in `structuralAggregateBaseline` at the root.
-That task collects findings from every module that applied the plugin and writes one file per
-configured path with the aggregated, deduplicated entries. Use this instead of
-`structuralGenerateBaseline` for shared-baseline workflows; using both at once on a shared path
-will race.
+`$rootDir/baseline.xml`, say — apply the aggregation plugin to your root project:
+
+```kts
+plugins {
+    id("com.adrianczuczka.structural.aggregation") version "<latest>"
+}
+```
+
+Its `structuralAggregateBaseline` task collects findings from every module that applies the
+structural plugin (through dependency resolution, so it stays compatible with Gradle's Isolated
+Projects mode) and writes one file per configured path with the aggregated, deduplicated entries.
+Use it instead of `structuralGenerateBaseline` for shared-baseline workflows; using both at once
+on a shared path will race.
+
+### Migrating from 1.x
+
+- `config` and `baseline` are file properties now, not strings: replace
+  `config = "$rootDir/structural.yml"` with `config.set(file("$rootDir/structural.yml"))`.
+- `structuralAggregateBaseline` is no longer registered automatically – apply
+  `com.adrianczuczka.structural.aggregation` to the root project to get it.
+- Projects applying a JVM plugin are checked by source set now rather than by directory layout.
+  If you relied on the old directory scan (e.g. sources outside any source set), set
+  `structural { source.from(...) }` explicitly.
 
 ### Compatibility
 
