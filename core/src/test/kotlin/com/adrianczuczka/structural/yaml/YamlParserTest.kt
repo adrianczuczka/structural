@@ -210,11 +210,76 @@ class YamlParserTest {
             yaml(
                 """
                 # empty config
-                empty: true
+                {}
                 """
             ).parseYamlImportRules()
         }
         assertThat(ex.message).contains("rules or classAllowlist")
+    }
+
+    @Test
+    fun `miscased class allowlist is rejected even alongside valid rules`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - com.example.api
+                  - com.example.impl
+                classAllowList:
+                  - "com.example.api.** <- com.example.impl.FusionException"
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).isEqualTo(
+            "Unknown configuration key `classAllowList`. Did you mean `classAllowlist`?"
+        )
+    }
+
+    @Test
+    fun `miscased rules suggests the canonical key before checking for missing rules`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                Rules:
+                  - data <- domain
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).isEqualTo(
+            "Unknown configuration key `Rules`. Did you mean `rules`?"
+        )
+    }
+
+    @Test
+    fun `unknown top-level key is rejected even alongside valid rules`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - data <- domain
+                unexpected: true
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).isEqualTo(
+            "Unknown configuration key `unexpected`. Supported keys are `rules` and `classAllowlist`."
+        )
+    }
+
+    @Test
+    fun `non-string top-level key is rejected with a configuration error`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  - data <- domain
+                123: true
+                """
+            ).parseYamlImportRules()
+        }
+        assertThat(ex.message).isEqualTo(
+            "Unknown configuration key `123`. Supported keys are `rules` and `classAllowlist`."
+        )
     }
 
     @Test
