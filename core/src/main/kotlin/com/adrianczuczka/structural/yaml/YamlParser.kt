@@ -67,7 +67,7 @@ import java.io.File
  */
 fun File.parseYamlImportRules(): StructuralData? =
     if (exists()) {
-        val data: Map<String, Any> = Yaml().load(inputStream())
+        val data: Map<*, *> = Yaml().load(inputStream())
         if (data.containsKey("packages")) {
             throw GradleException(
                 "The `packages:` block has been removed. Tracked packages are now inferred from " +
@@ -82,6 +82,21 @@ fun File.parseYamlImportRules(): StructuralData? =
                     "explicit — it's an allowlist of class-level imports, not a constraint. " +
                     "Rename `classes:` to `classAllowlist:` in your config."
             )
+        }
+        val supportedKeys = setOf("rules", "classAllowlist")
+        data.keys.forEach { key ->
+            if (key !in supportedKeys) {
+                val suggestion = supportedKeys.firstOrNull {
+                    key is String && it.equals(key, ignoreCase = true)
+                }
+                val hint = if (suggestion != null) {
+                    "Did you mean `$suggestion`?"
+                } else {
+                    val supportedKeysDescription = supportedKeys.joinToString(" and ") { "`$it`" }
+                    "Supported keys are $supportedKeysDescription."
+                }
+                throw GradleException("Unknown configuration key `$key`. $hint")
+            }
         }
         val allowedListPerPackage = mutableMapOf<TrackedPackage, MutableList<TrackedPackage>>()
         val rawRules = data["rules"]

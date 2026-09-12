@@ -66,6 +66,10 @@ relationships between them. Every identifier that appears in `rules:` becomes a 
 import from outside that set (kotlin stdlib, third-party libs, packages you don't care about) is
 unconditionally allowed.
 
+The supported top-level keys are `rules` and the optional `classAllowlist`. Keys are
+case-sensitive; unknown keys fail with a configuration error. For example, `classAllowList`
+is rejected with a suggestion to use `classAllowlist`.
+
 For most projects, naming the layers by their last segment is all you need. The arrow form reads
 naturally for short rule sets:
 
