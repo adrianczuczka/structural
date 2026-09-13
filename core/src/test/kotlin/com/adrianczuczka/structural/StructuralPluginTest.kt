@@ -809,6 +809,42 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `broad class allowlist with exact tracked package grants necessary import without warning`() {
+        val packageRules = """
+            rules:
+              "dev.ionfusion.fusion!":
+                - dev.ionfusion.runtime.embed
+              dev.ionfusion.runtime.embed: []
+        """.trimIndent()
+        val config = File(testProjectDir, "structural.yml")
+        config.writeText(packageRules + "\n" + """
+            classAllowlist:
+              "dev.ionfusion.**":
+                - dev.ionfusion.fusion._Private_*
+        """.trimIndent())
+        File(testProjectDir, "src/main/java/dev/ionfusion/runtime/embed/FusionRuntimeBuilder.java").apply {
+            parentFile.mkdirs()
+            writeText("""
+                package dev.ionfusion.runtime.embed;
+                import dev.ionfusion.fusion._Private_Trampoline;
+                public class FusionRuntimeBuilder {}
+            """.trimIndent())
+        }
+
+        val runner = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+        val allowed = runner.build()
+        assertThat(allowed.task(":structuralCheck")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+        assertThat(allowed.output).doesNotContain("has no effect")
+
+        config.writeText(packageRules)
+        val denied = runner.buildAndFail()
+        assertThat(denied.output).contains("`dev.ionfusion.runtime.embed` cannot import from `dev.ionfusion.fusion`")
+    }
+
+    @Test
     fun `structuralCheck surfaces warnings from ineffective class rules`() {
         File(testProjectDir, "structural.yml").writeText(
             """
