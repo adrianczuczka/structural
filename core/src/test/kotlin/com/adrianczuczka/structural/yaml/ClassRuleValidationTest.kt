@@ -1,7 +1,9 @@
 package com.adrianczuczka.structural.yaml
 
 import com.google.common.truth.Truth.assertThat
+import org.gradle.api.GradleException
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class ClassRuleValidationTest {
 
@@ -115,7 +117,7 @@ class ClassRuleValidationTest {
     @Test
     fun `intersections missed by representative samples remain possible runtime matches`() {
         // com.foo.api matches both patterns. The first pattern wins the tie
-        // and denies the import, although overlap() misses this intersection.
+        // and denies the import. Representative samples missed this intersection.
         assertThat(warnings(
             "com.*.api.Client", "org.shared.Internal",
             "com.foo.*" to emptyList(),
@@ -125,15 +127,54 @@ class ClassRuleValidationTest {
     }
 
     @Test
-    fun `uncertain wildcard intersections suppress a redundancy warning`() {
-        // These suffixes are disjoint, but the conservative prefix check does
-        // not prove it. A missed cleanup suggestion is acceptable here.
+    fun `disjoint wildcard suffixes do not suppress a redundancy warning`() {
         assertThat(warnings(
             "com.**.api.Client", "org.shared.Internal",
             "com.**.impl" to emptyList(),
             "com.**.api" to listOf("org.shared"),
             "org.shared" to emptyList(),
+        )).hasSize(1)
+    }
+
+    @Test
+    fun `crossed single-star patterns provide importer coverage`() {
+        assertThat(warnings(
+            "com.*.api.Client", "org.shared.Internal",
+            "com.foo.*" to emptyList(),
+            "org.shared" to emptyList(),
         )).isEmpty()
+    }
+
+    @Test
+    fun `crossed single-star patterns provide imported coverage`() {
+        assertThat(warnings(
+            "org.shared.Client", "com.*.api.Internal",
+            "com.foo.*" to emptyList(),
+            "org.shared" to emptyList(),
+        )).isEmpty()
+    }
+
+    @Test
+    fun `implicit subpackages can overlap legacy tracked names`() {
+        assertThat(warnings(
+            "com.example.api.Client", "com.example.impl.Internal",
+            "data" to emptyList(),
+        )).isEmpty()
+    }
+
+    @Test
+    fun `single-segment class prefixes cannot borrow coverage from nested packages`() {
+        val importerError = assertThrows<GradleException> {
+            warnings("api.Client", "org.shared.Internal",
+                "com.api" to emptyList(), "org.shared" to emptyList())
+        }
+        assertThat(importerError.message).contains("importer package `api`")
+
+        val importedError = assertThrows<GradleException> {
+            warnings("org.shared.Client", "api.Internal",
+                "com.api" to emptyList(), "org.shared" to emptyList())
+        }
+        assertThat(importedError.message).contains("imported package `api`")
     }
 
     @Test

@@ -845,6 +845,41 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `crossed package wildcards allow necessary class imports`() {
+        val packageRules = """
+            rules:
+              com.foo.*: []
+              org.shared.*: []
+        """.trimIndent()
+        val config = File(testProjectDir, "structural.yml")
+        config.writeText(packageRules + "\n" + """
+            classAllowlist:
+              com.*.api.Client:
+                - org.*.impl.Internal
+        """.trimIndent())
+        File(testProjectDir, "src/main/java/com/foo/api/Client.java").apply {
+            parentFile.mkdirs()
+            writeText("""
+                package com.foo.api;
+                import org.shared.impl.Internal;
+                public class Client {}
+            """.trimIndent())
+        }
+
+        val runner = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+        val allowed = runner.build()
+        assertThat(allowed.task(":structuralCheck")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+        assertThat(allowed.output).doesNotContain("has no effect")
+
+        config.writeText(packageRules)
+        val denied = runner.buildAndFail()
+        assertThat(denied.output).contains("`com.foo.api` cannot import from `org.shared.impl`")
+    }
+
+    @Test
     fun `structuralCheck surfaces warnings from ineffective class rules`() {
         File(testProjectDir, "structural.yml").writeText(
             """
