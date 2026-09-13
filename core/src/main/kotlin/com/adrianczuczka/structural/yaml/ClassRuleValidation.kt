@@ -19,7 +19,7 @@ internal fun validateClassRules(
     val hasSingleSegmentTracked = tracked.any { it.isSingleSegment }
 
     classRules.forEach { rule ->
-        val importerCovered = tracked.any { overlap(rule.importer.packagePattern, it) }
+        val importerCovered = tracked.any { rule.importer.packagePattern.matchPattern.overlaps(it.trackingPattern) }
         if (!importerCovered) {
             throw GradleException(
                 "class rule ${rule.display()} references importer package " +
@@ -29,7 +29,7 @@ internal fun validateClassRules(
             )
         }
 
-        val importedCovered = tracked.any { overlap(rule.imported.packagePattern, it) }
+        val importedCovered = tracked.any { rule.imported.packagePattern.matchPattern.overlaps(it.trackingPattern) }
         if (!importedCovered) {
             throw GradleException(
                 "class rule ${rule.display()} references imported package " +
@@ -80,9 +80,8 @@ internal fun validateClassRules(
 
 /**
  * An overestimate of the multi-segment packages runtime matching can select.
- * Keep uncertain intersections; [overlap]'s representative samples are not
- * sufficient to prove that an intersection is empty. Preserve runtime ordering
- * and drop a candidate only when an earlier match is proven to cover it.
+ * Intersections are exact, but containment is conservative. Preserve runtime
+ * ordering and drop a candidate only when an earlier match is proven to cover it.
  */
 private fun possibleTrackedPackages(
     pattern: TrackedPackage,
@@ -90,20 +89,11 @@ private fun possibleTrackedPackages(
 ): List<TrackedPackage> {
     val possible = mutableListOf<TrackedPackage>()
     for (tracked in byMostSpecific) {
-        if (!mayOverlapForWarning(pattern, tracked)) continue
+        if (!pattern.matchPattern.overlaps(tracked.matchPattern)) continue
         if (possible.none { it.coversForWarning(tracked) }) possible += tracked
         if (tracked.coversForWarning(pattern)) break
     }
     return possible
-}
-
-private fun mayOverlapForWarning(a: TrackedPackage, b: TrackedPackage): Boolean {
-    if (a.pattern.endsWith("!")) return b.matches(a.pattern.dropLast(1))
-    if (b.pattern.endsWith("!")) return a.matches(b.pattern.dropLast(1))
-
-    // Conflicting literal prefixes prove disjointness. Anything past the first
-    // wildcard remains a possibility, including intersections missed by samples.
-    return a.literalPrefix().zip(b.literalPrefix()).all { (left, right) -> left == right }
 }
 
 /** True only for containment we can prove; false also means unknown. */
