@@ -13,14 +13,27 @@ internal fun validateClassRules(
     classRules: List<ClassRule>,
     rules: Map<TrackedPackage, List<TrackedPackage>>,
 ): ClassRuleValidation {
+    if (classRules.isEmpty()) return ClassRuleValidation(emptyList())
+
     val tracked = rules.keys
     val warnings = mutableListOf<String>()
     val multiSegmentTracked = tracked.filterNot { it.isSingleSegment }.sortedByDescending { it.specificity() }
     val hasSingleSegmentTracked = tracked.any { it.isSingleSegment }
+    val allowedPackages = rules.mapValues { (_, allowed) -> allowed.toHashSet() }
+
+    // Many class-specific exceptions share their package patterns. Reuse the
+    // package analysis within this validation run; class names do not affect it.
+    val coverage = mutableMapOf<TrackedPackage, Boolean>()
+    val possibleMatches = mutableMapOf<TrackedPackage, List<TrackedPackage>>()
+    fun isCovered(pattern: TrackedPackage): Boolean = coverage.getOrPut(pattern) {
+        tracked.any { pattern.matchPattern.overlaps(it.trackingPattern) }
+    }
+    fun matches(pattern: TrackedPackage): List<TrackedPackage> = possibleMatches.getOrPut(pattern) {
+        possibleTrackedPackages(pattern, multiSegmentTracked)
+    }
 
     classRules.forEach { rule ->
-        val importerCovered = tracked.any { rule.importer.packagePattern.matchPattern.overlaps(it.trackingPattern) }
-        if (!importerCovered) {
+        if (!isCovered(rule.importer.packagePattern)) {
             throw GradleException(
                 "class rule ${rule.display()} references importer package " +
                     "`${rule.importer.packagePattern}` but no rule in `rules:` covers it. " +
@@ -29,8 +42,7 @@ internal fun validateClassRules(
             )
         }
 
-        val importedCovered = tracked.any { rule.imported.packagePattern.matchPattern.overlaps(it.trackingPattern) }
-        if (!importedCovered) {
+        if (!isCovered(rule.imported.packagePattern)) {
             throw GradleException(
                 "class rule ${rule.display()} references imported package " +
                     "`${rule.imported.packagePattern}` but no rule in `rules:` covers it. " +
@@ -46,14 +58,14 @@ internal fun validateClassRules(
             return@forEach
         }
 
-        val importers = possibleTrackedPackages(rule.importer.packagePattern, multiSegmentTracked)
-        val imported = possibleTrackedPackages(rule.imported.packagePattern, multiSegmentTracked)
+        val importers = matches(rule.importer.packagePattern)
+        val imported = matches(rule.imported.packagePattern)
         if (importers.isEmpty() || imported.isEmpty()) return@forEach
 
         // These sets may include extra possibilities, but must never miss a
         // runtime match. One potentially forbidden pair is enough to withhold
         // a warning: removing the class rule might change enforcement.
-        if (importers.any { from -> imported.any { to -> from != to && to !in rules[from].orEmpty() } }) {
+        if (importers.any { from -> imported.any { to -> from != to && to !in allowedPackages.getValue(from) } }) {
             return@forEach
         }
 
