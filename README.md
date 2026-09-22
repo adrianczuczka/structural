@@ -66,6 +66,10 @@ relationships between them. Every identifier that appears in `rules:` becomes a 
 import from outside that set (kotlin stdlib, third-party libs, packages you don't care about) is
 unconditionally allowed.
 
+The supported top-level keys are `rules` and the optional `classAllowlist`. Keys are
+case-sensitive; unknown keys fail with a configuration error. For example, `classAllowList`
+is rejected with a suggestion to use `classAllowlist`.
+
 For most projects, naming the layers by their last segment is all you need. The arrow form reads
 naturally for short rule sets:
 
@@ -206,10 +210,11 @@ classAllowlist:
   - "com.example.api.** <- com.example.impl.**._Private_*"
 ```
 
-Every package referenced by a `classAllowlist:` entry must also appear in `rules:` — otherwise
-the rule has nothing to grant against and Structural refuses to load the config. Entries that are
-already permitted by package rules, or where both sides fall under the same tracked package, log a
-warning at task time so you can clean them up.
+Each package pattern in a `classAllowlist:` entry must overlap at least one tracked package in
+`rules:` — there must be a concrete package that matches both. For example, `com.*.api` overlaps
+`com.foo.*` because both match `com.foo.api`. Structural refuses to load the config if either side
+has no overlap. It warns about a redundant entry only when package rules already permit every
+possible tracked package combination that the entry can match.
 
 (A future release may add a deny-form counterpart — `classDenylist:` — for the inverse case where
 you want broad permission with a few carved-out denials. Open an issue if you need it.)
@@ -231,8 +236,11 @@ Each side of a class rule is a token like `com.example.api.ApiBuilder`. Structur
    trailing segment with `:` to force it: `com.example.api.:listOf` parses as package
    `com.example.api`, class `listOf`.
 
-The package portion uses the [glob grammar above](#glob-patterns); the class portion supports
-shell-style globs on a single identifier:
+The package portion uses the [glob grammar above](#glob-patterns). A single-segment class-rule
+prefix is literal: `api.Client` matches `Client` in package `api`. To match `Client` in any package
+containing an `api` segment, including its subpackages, use `**.api.**.Client`.
+
+The class portion supports shell-style globs on a single identifier:
 
 | Class pattern | Matches |
 | --- | --- |
