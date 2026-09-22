@@ -20,6 +20,15 @@ internal fun validateClassRules(
     val multiSegmentTracked = tracked.filterNot { it.isSingleSegment }.sortedByDescending { it.specificity() }
     val hasSingleSegmentTracked = tracked.any { it.isSingleSegment }
     val allowedPackages = rules.mapValues { (_, allowed) -> allowed.toHashSet() }
+    val allowedCoverage = mutableMapOf<TrackedPackage, MutableMap<TrackedPackage, Boolean>>()
+
+    fun permitsEntirePattern(from: TrackedPackage, target: TrackedPackage): Boolean {
+        val allowed = allowedPackages.getValue(from)
+        if (target in allowed) return true
+        return allowedCoverage.getOrPut(from) { mutableMapOf() }.getOrPut(target) {
+            allowed.any { it.coversForWarning(target) }
+        }
+    }
 
     // Many class-specific exceptions share their package patterns. Reuse the
     // package analysis within this validation run; class names do not affect it.
@@ -65,7 +74,10 @@ internal fun validateClassRules(
         // These sets may include extra possibilities, but must never miss a
         // runtime match. One potentially forbidden pair is enough to withhold
         // a warning: removing the class rule might change enforcement.
-        if (importers.any { from -> imported.any { to -> from != to && to !in allowedPackages.getValue(from) } }) {
+        if (importers.any { from -> imported.any { to ->
+                from != to && !permitsEntirePattern(from, to) &&
+                    !permitsEntirePattern(from, rule.imported.packagePattern)
+            } }) {
             return@forEach
         }
 

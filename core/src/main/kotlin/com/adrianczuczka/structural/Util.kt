@@ -1,5 +1,7 @@
 package com.adrianczuczka.structural
 
+import org.jetbrains.kotlin.com.intellij.psi.PsiImportStaticStatement
+import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -15,7 +17,8 @@ internal data class ParsedImport(
 
 internal data class ParsedSourceFile(
     val packageName: String?,
-    val imports: List<ParsedImport>
+    val imports: List<ParsedImport>,
+    val topLevelClassNames: List<String>,
 )
 
 internal fun File.parseSourceFile(): ParsedSourceFile =
@@ -31,43 +34,53 @@ private fun File.parseKotlinSourceFile(): ParsedSourceFile {
                 importPath = path,
                 lineNumber = ktFile.viewProvider.document.getLineNumber(directive.textRange.startOffset) + 1,
                 className = directive.importPath?.fqName?.shortName()?.asString()
+                    ?.takeUnless { directive.isAllUnder }
             )
-        }
+        },
+        topLevelClassNames = ktFile.declarations.filterIsInstance<KtClassOrObject>().mapNotNull { it.name },
     )
 }
 
-private val PACKAGE_PATTERN = Regex("""^\s*package\s+([\w.]+)\s*;""")
-private val IMPORT_PATTERN = Regex("""^\s*import\s+(static\s+)?([\w.*]+)\s*;""")
-
 private fun File.parseJavaSourceFile(): ParsedSourceFile {
-    val lines = readLines()
-    var packageName: String? = null
-    val imports = mutableListOf<ParsedImport>()
-
-    lines.forEachIndexed { index, line ->
-        if (packageName == null) {
-            PACKAGE_PATTERN.find(line)?.let {
-                packageName = it.groupValues[1]
-            }
-        }
-        IMPORT_PATTERN.find(line)?.let { match ->
-            val isStatic = match.groupValues[1].isNotBlank()
-            val importPath = match.groupValues[2]
-            imports.add(
-                ParsedImport(
-                    importPath = importPath,
-                    lineNumber = index + 1,
-                    className = importPath.split(".").last().takeIf { it != "*" },
-                    isStatic = isStatic
-                )
+    val javaFile = PsiFactoryProvider.createJavaFile(name, readText())
+    return ParsedSourceFile(
+        packageName = javaFile.packageName.takeIf { it.isNotEmpty() },
+        imports = javaFile.importList?.allImportStatements.orEmpty().mapNotNull { statement ->
+            val reference = statement.importReference ?: return@mapNotNull null
+            val importPath = reference.qualifiedName + if (statement.isOnDemand) ".*" else ""
+            ParsedImport(
+                importPath = importPath,
+                lineNumber = javaFile.viewProvider.document!!.getLineNumber(statement.textRange.startOffset) + 1,
+                className = importPath.substringAfterLast('.').takeUnless { statement.isOnDemand },
+                isStatic = statement is PsiImportStaticStatement,
             )
+        },
+        topLevelClassNames = javaFile.classes.mapNotNull { it.name },
+    )
+}
+
+/**
+ * Resolve nested types and members using declarations in the checked sources.
+ * A class name is not a package segment, regardless of capitalization or file
+ * name. Unavailable types retain the existing syntactic import fallback; this
+ * checker does not resolve the project's dependency classpath.
+ */
+internal class SourcePackageIndex(sources: Collection<ParsedSourceFile>) {
+    private val packagesByType = buildMap {
+        sources.forEach { source ->
+            val pkg = source.packageName ?: return@forEach
+            source.topLevelClassNames.forEach { name -> put("$pkg.$name", pkg) }
         }
     }
 
-    return ParsedSourceFile(
-        packageName = packageName?.takeIf { it.isNotEmpty() },
-        imports = imports
-    )
+    fun importedPackage(import: ParsedImport): String {
+        var prefix = import.importPath
+        while ('.' in prefix) {
+            packagesByType[prefix]?.let { return it }
+            prefix = prefix.substringBeforeLast('.')
+        }
+        return extractPackageFromImport(import.importPath, import.isStatic)
+    }
 }
 
 internal fun extractPackageFromImport(importPath: String, isStatic: Boolean = false): String {

@@ -4,6 +4,9 @@ import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.com.intellij.openapi.Disposable
 import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
+import org.jetbrains.kotlin.com.intellij.lang.java.JavaLanguage
+import org.jetbrains.kotlin.com.intellij.psi.PsiFileFactory
+import org.jetbrains.kotlin.com.intellij.psi.PsiJavaFile
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.psi.KtPsiFactory
 
@@ -20,4 +23,8 @@ object PsiFactoryProvider {
     }
 
     val ktPsiFactory: KtPsiFactory = KtPsiFactory(project = environment.project)
+
+    internal fun createJavaFile(name: String, text: String): PsiJavaFile =
+        PsiFileFactory.getInstance(environment.project)
+            .createFileFromText(name, JavaLanguage.INSTANCE, text) as PsiJavaFile
 }

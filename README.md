@@ -146,6 +146,15 @@ A bare path like `com.example.app.data` matches that path *and any of its subpac
 under `com.example.app.data.**` lives by `com.example.app.data`'s rules. When more than one tracked
 package matches a file, the longest match wins.
 
+The winning importer rule replaces the broader rule's permissions; permissions do not accumulate
+from parent packages. For example, adding a rule for `com.example.app.data.local` means that
+package uses its own allowlist, including any permissions you want to retain from `data`.
+
+Dependency targets are matched against the imported package itself. Allowing
+`com.example.app.domain` (or `com.example.app.domain.**`) grants access to its subpackages even
+when those subpackages have their own rules. An exact target such as `com.example.app.domain!`
+still grants access only to that package.
+
 ### Glob patterns
 
 For fully-qualified package names, Structural supports Ant-style wildcards so you don't have to
@@ -280,12 +289,20 @@ A few sharp edges worth knowing about up front:
   `import static com.foo.Util.LOG;` is granted by a rule on `com.foo.Util`, not one on
   `com.foo.LOG`.
 - **Nested-class patterns aren't supported.** A token like `com.example.Foo.Bar` is rejected when
-  the config is parsed. A rule on `Foo` will match `import Foo.Bar` by simple name (`Bar`); reach
-  for a class glob on the imported side if you need finer control.
+  the config is parsed. For types declared in the checked sources, importing `Foo.Bar` uses the
+  declared package and the simple name `Bar` for class rules; a static import of `Foo.Bar.member`
+  also uses `Bar`. A rule on `com.example.Bar` can grant these imports, but cannot distinguish
+  nested classes with the same simple name in different enclosing types.
 - **Kotlin object members.** `import com.foo.MyObject.member` is matched by simple name
   (`member`), not against the enclosing object. Kotlin's import directive doesn't tell us whether
   `member` is an object member or a top-level declaration, so treat them the same when writing
   rules.
+- **Types outside the checked sources are not resolved.** Structural indexes top-level Java and
+  Kotlin type declarations to identify the actual package of nested-type and member imports.
+  For types available only in dependencies or other unchecked source sets, it falls back to
+  removing the final import segment (two for Java static imports). Nested imports of those types
+  can therefore still be mistaken for imports from a subpackage. The dependency classpath is
+  not analyzed.
 
 ### Which sources are checked
 
