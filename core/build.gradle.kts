@@ -4,7 +4,7 @@ plugins {
     id("io.deepmedia.tools.deployer") version "0.17.0"
 }
 
-val releaseVersion = "2.0.0-beta1"
+val releaseVersion = "2.0.0-beta2"
 
 group = "com.adrianczuczka"
 version = releaseVersion
