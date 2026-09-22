@@ -7,6 +7,39 @@ import org.junit.jupiter.api.assertThrows
 
 class ClassRuleValidationTest {
 
+    @Test
+    fun `broad dependency permission covers a separately tracked descendant`() {
+        val warnings = warnings(
+            "dev.ionfusion.fusion!.Caller", "dev.ionfusion.commons.resources.ResourcePosition",
+            "dev.ionfusion.fusion!" to listOf("dev.ionfusion.commons.**"),
+            "dev.ionfusion.commons.**" to emptyList(),
+            "dev.ionfusion.commons.resources" to emptyList(),
+        )
+        assertThat(warnings).hasSize(1)
+        assertThat(warnings.single()).contains("package rule already permits")
+    }
+
+    @Test
+    fun `dependency permission may cover a class rule without covering its entire tracked target`() {
+        val warnings = warnings(
+            "com.example.api!.Caller", "com.example.impl.public!.Helper",
+            "com.example.api!" to listOf("com.example.*.public"),
+            "com.example.*.public" to emptyList(),
+            "com.example.impl" to emptyList(),
+        )
+        assertThat(warnings).hasSize(1)
+    }
+
+    @Test
+    fun `overlapping dependency permission cannot prove an entire class rule redundant`() {
+        assertThat(warnings(
+            "com.example.api!.Caller", "com.example.impl.**.Helper",
+            "com.example.api!" to listOf("com.example.impl.public!"),
+            "com.example.impl.public!" to emptyList(),
+            "com.example.impl" to emptyList(),
+        )).isEmpty()
+    }
+
     private fun warnings(
         importer: String,
         imported: String,
