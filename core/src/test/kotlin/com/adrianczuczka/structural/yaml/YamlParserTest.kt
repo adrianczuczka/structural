@@ -176,6 +176,92 @@ class YamlParserTest {
     }
 
     @Test
+    fun `map rule with slash comment is rejected with YAML guidance`() {
+        val ex = assertThrows<GradleException> {
+            yaml(
+                """
+                rules:
+                  dev.ionfusion.commons.resources:
+                    - dev.ionfusion.commons.util
+                  dev.ionfusion.commons._private.io: // Should not depend on anything
+                """
+            ).parseYamlImportRules()
+        }
+
+        assertThat(ex.message).contains("rules")
+        assertThat(ex.message).contains("dev.ionfusion.commons._private.io")
+        assertThat(ex.message).contains("[]")
+        assertThat(ex.message).contains("#")
+        assertThat(ex.message).contains("//")
+    }
+
+    @Test
+    fun `map rule values must be lists even alongside valid rules`() {
+        for (value in listOf("", "null", "domain", "true", "42", "{ domain: [] }")) {
+            val ex = assertThrows<GradleException> {
+                yaml(
+                    """
+                    rules:
+                      data: [domain]
+                      legacy: $value
+                    """
+                ).parseYamlImportRules()
+            }
+            assertThat(ex.message).contains("legacy")
+            assertThat(ex.message).contains("list")
+            assertThat(ex.message).contains("[]")
+        }
+    }
+
+    @Test
+    fun `non-string package entries are rejected instead of silently ignored`() {
+        val invalidRules = listOf(
+            "- data <- domain\n- 42",
+            "- data <- domain\n- null",
+            "- data <- domain\n- { legacy: [] }",
+            "data: [domain, 42]",
+            "data: [domain, null]",
+            "data: [domain, [legacy]]",
+            "data: [domain]\n42: []",
+            "data: [domain]\nnull: []",
+            "data: [domain]\n? [ui, null]\n: []",
+            "data: [domain]\n? [ui, 42]\n: []",
+            "data: [domain]\n? []\n: []",
+        )
+        for (rules in invalidRules) {
+            val ex = assertThrows<GradleException> {
+                yaml("rules:\n" + rules.prependIndent("  ")).parseYamlImportRules()
+            }
+            assertThat(ex.message).contains("rules")
+            assertThat(ex.message).contains("string")
+        }
+    }
+
+    @Test
+    fun `composite map keys and empty lists preserve tracking and permissions`() {
+        val data = yaml(
+            """
+            rules:
+              ? [ui, data]
+              : [domain]
+              ? [local, remote]
+              : [] # No allowed dependencies
+              legacy: [] # Tracked without any allowed dependencies
+            """
+        ).parseYamlImportRules()!!
+
+        assertThat(data.checkedPackages.map { it.pattern })
+            .containsExactly("ui", "data", "domain", "local", "remote", "legacy")
+        for (importer in listOf("ui", "data")) {
+            assertThat(data.rules[TrackedPackage(importer)])
+                .containsExactly(TrackedPackage("domain"))
+        }
+        for (importer in listOf("domain", "local", "remote", "legacy")) {
+            assertThat(data.rules[TrackedPackage(importer)]).isEmpty()
+        }
+    }
+
+    @Test
     fun `classes only without rules is rejected`() {
         val ex = assertThrows<GradleException> {
             yaml(
