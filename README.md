@@ -115,6 +115,16 @@ rules:
   legacy: []         # tracked, with no allowed imports
 ```
 
+Map values must be lists. Use `[]` for a package with no allowed imports; leaving the value
+blank is a configuration error. YAML comments start with `#`, so write
+`legacy: [] # No allowed imports`. A value such as `legacy: // No allowed imports` is a string
+and is rejected. Rule entries, package keys, and dependency list items must also be strings.
+
+Dependency targets become tracked packages throughout the project. Adding a broad target such as
+`com.example.commons.**` can expose violations in other packages that previously imported from
+untracked packages. Each importer needs its own permission to import a tracked dependency;
+declaring the dependency with `[]` only restricts the imports that dependency can make.
+
 If a bunch of packages share the same allowlist, YAML composite keys let you group them:
 
 ```yaml

@@ -109,44 +109,57 @@ fun File.parseYamlImportRules(): StructuralData? =
         when (rawRules) {
             null -> Unit
             is List<*> -> {
-                rawRules.forEach { rule ->
-                    if (rule is String) {
-                        val regex = """(<-|->)""".toRegex()
+                rawRules.forEachIndexed { index, rule ->
+                    if (rule !is String) {
+                        throw GradleException("Invalid entry at rules[${index + 1}]: expected a package rule string.")
+                    }
+                    val regex = """(<-|->)""".toRegex()
 
-                        val parts = regex.split(rule).map { it.trim() }
-                        val arrows = regex.findAll(rule).map { it.value }.toList()
+                    val parts = regex.split(rule).map { it.trim() }
+                    val arrows = regex.findAll(rule).map { it.value }.toList()
 
-                        if (parts.any { it.isBlank() }) {
-                            throw GradleException(
-                                "Invalid rule format: '$rule'. Each side of an arrow must be a non-empty package token."
-                            )
-                        }
+                    if (parts.any { it.isBlank() }) {
+                        throw GradleException(
+                            "Invalid rule format: '$rule'. Each side of an arrow must be a non-empty package token."
+                        )
+                    }
 
-                        val parsedParts = parts.map { parseTrackedPackage(it) }
-                        parsedParts.forEach {
-                            allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
-                        }
+                    val parsedParts = parts.map { parseTrackedPackage(it) }
+                    parsedParts.forEach {
+                        allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
+                    }
 
-                        arrows.forEachIndexed { index, arrow ->
-                            val source = parsedParts[index]
-                            val target = parsedParts[index + 1]
-                            val key = if (arrow == "->") target else source
-                            val value = if (arrow == "->") source else target
-                            allowedListPerPackage.computeIfAbsent(key) { mutableListOf() } += value
-                        }
+                    arrows.forEachIndexed { arrowIndex, arrow ->
+                        val source = parsedParts[arrowIndex]
+                        val target = parsedParts[arrowIndex + 1]
+                        val key = if (arrow == "->") target else source
+                        val value = if (arrow == "->") source else target
+                        allowedListPerPackage.computeIfAbsent(key) { mutableListOf() } += value
                     }
                 }
             }
             is Map<*, *> -> {
                 rawRules.forEach { (key, value) ->
-                    if (key is String && value is List<*>) {
-                        allowedListPerPackage.addAllowedPackageToKeyIfPossible(key, value)
-                    } else if (key is List<*> && value is List<*>) {
-                        key
-                            .filterNotNull()
-                            .forEach { test ->
-                                allowedListPerPackage.addAllowedPackageToKeyIfPossible(test, value)
-                            }
+                    val keys = when {
+                        key is String -> listOf(key)
+                        key is List<*> && key.isNotEmpty() && key.all { it is String } -> key
+                        else -> throw GradleException(
+                            "Invalid rules key `$key`: expected a package string or a non-empty list of package strings."
+                        )
+                    }
+                    if (value !is List<*>) {
+                        val commentHint = if (value is String && value.trimStart().startsWith("//")) {
+                            " YAML comments start with #, not //."
+                        } else {
+                            ""
+                        }
+                        throw GradleException(
+                            "Invalid rules value for `$key`: expected a list of package strings. " +
+                                "Use [] to track a package with no allowed imports.$commentHint"
+                        )
+                    }
+                    keys.forEach {
+                        allowedListPerPackage.addAllowedPackages(it as String, value)
                     }
                 }
             }
@@ -219,21 +232,24 @@ private fun parseClassRulesSection(raw: Any?): List<ClassRule> {
     return rules.distinct()
 }
 
-private fun MutableMap<TrackedPackage, MutableList<TrackedPackage>>.addAllowedPackageToKeyIfPossible(
-    key: Any,
-    value: Any,
+private fun MutableMap<TrackedPackage, MutableList<TrackedPackage>>.addAllowedPackages(
+    key: String,
+    value: List<*>,
 ) {
-    if (key is String && value is List<*>) {
-        val parsedKey = parseTrackedPackage(key)
-        val parsedValues = value
-            .filterIsInstance<String>()
-            .map { parseTrackedPackage(it) }
-        this[parsedKey] =
-            (getOrDefault(parsedKey, emptyList()) + parsedValues)
-                .distinct()
-                .toMutableList()
-        parsedValues.forEach { computeIfAbsent(it) { mutableListOf() } }
+    val parsedKey = parseTrackedPackage(key)
+    val parsedValues = value.mapIndexed { index, token ->
+        if (token !is String) {
+            throw GradleException(
+                "Invalid rules value for `$key` at item ${index + 1}: expected a package string."
+            )
+        }
+        parseTrackedPackage(token)
     }
+    this[parsedKey] =
+        (getOrDefault(parsedKey, emptyList()) + parsedValues)
+            .distinct()
+            .toMutableList()
+    parsedValues.forEach { computeIfAbsent(it) { mutableListOf() } }
 }
 
 data class StructuralData internal constructor(
