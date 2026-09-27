@@ -90,4 +90,31 @@ class RuleConfigurationTest {
             assertThat(allowed.output).contains("All package imports follow the specified package rules")
         }
     }
+
+    @Test
+    fun `exact fusion rule can allow all commons packages with a double-star target`() {
+        File(projectDir, "src/main/java/dev/ionfusion/fusion/Fusion.java").apply {
+            parentFile.mkdirs()
+            writeText("""
+                package dev.ionfusion.fusion;
+                import static dev.ionfusion.commons._private.io.Ordinals.displayFriendlyPosition;
+                import dev.ionfusion.commons.Shared;
+                import dev.ionfusion.commons.resources.ResourcePosition;
+                import dev.ionfusion.commons.util.nested.Helper;
+                public class Fusion {}
+            """.trimIndent())
+        }
+        writeRules(broadTarget = false, ioDeclaration = "[]", allowIo = true)
+
+        val denied = runner().buildAndFail()
+
+        assertThat(denied.output)
+            .contains("`dev.ionfusion.fusion` cannot import from `dev.ionfusion.commons._private.io`")
+
+        writeRules(broadTarget = true, ioDeclaration = "[]", allowIo = true)
+
+        val allowed = runner().build()
+
+        assertThat(allowed.output).contains("All package imports follow the specified package rules")
+    }
 }
