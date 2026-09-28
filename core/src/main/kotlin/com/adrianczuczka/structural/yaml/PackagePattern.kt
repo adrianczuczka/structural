@@ -3,12 +3,19 @@ package com.adrianczuczka.structural.yaml
 import org.gradle.api.GradleException
 
 internal data class TrackedPackage(val pattern: String) {
-    private val regex: Regex by lazy { compilePackagePattern(pattern) }
+    val matchPattern: PackagePattern by lazy { compilePackagePattern(pattern) }
 
     val isSingleSegment: Boolean =
         !pattern.contains('.') && !pattern.contains('!') && !pattern.contains('*')
 
-    fun matches(pkg: String): Boolean = regex.matches(pkg)
+    // Legacy tracked names match a segment at any depth. Class-rule package
+    // prefixes use matchPattern instead: api.Client belongs only to package api.
+    // This describes membership, not runtime precedence or ancestor permissions.
+    val trackingPattern: PackagePattern by lazy {
+        if (isSingleSegment) compilePackagePattern("**.$pattern.**") else matchPattern
+    }
+
+    fun matches(pkg: String): Boolean = matchPattern.matches(pkg)
 
     override fun toString(): String = pattern
 }
@@ -22,8 +29,8 @@ internal data class TrackedPackage(val pattern: String) {
  * - `*` segment (e.g. `com.*.api`) — matches exactly one segment.
  * - `**` segment (e.g. `com.**.api`) — matches zero or more segments.
  * - trailing `!` (e.g. `com.example!`) — exact match, no wildcards allowed.
- * - single-segment literal (e.g. `data`) — legacy last-segment matching; no
- *   wildcards or `!` permitted on single-segment tokens.
+ * - single-segment literal (e.g. `data`) — ancestor matching in tracked rules,
+ *   literal matching in class-rule prefixes; no wildcards or `!` permitted.
  */
 internal fun parseTrackedPackage(raw: String): TrackedPackage {
     val trimmed = raw.trim()
@@ -64,88 +71,83 @@ internal fun parseTrackedPackage(raw: String): TrackedPackage {
     return TrackedPackage(if (exact) "$body!" else body)
 }
 
-internal fun compilePackagePattern(pattern: String): Regex {
-    if (pattern.endsWith("!")) {
-        val path = pattern.dropLast(1)
-        return Regex("^${Regex.escape(path)}$")
-    }
-
-    val segments = pattern.split(".")
-    val hasWildcards = segments.any { it == "*" || it == "**" }
-    val sb = StringBuilder("^")
-
-    segments.forEachIndexed { index, seg ->
-        val isFirst = index == 0
-        val isLast = index == segments.size - 1
-
-        if (seg == "**") {
-            when {
-                isFirst && isLast -> sb.append("(?:[^.]+(?:\\.[^.]+)*)?")
-                isFirst -> sb.append("(?:[^.]+\\.)*")
-                else -> sb.append("(?:\\.[^.]+)*")
-            }
-            return@forEachIndexed
-        }
-
-        if (!isFirst) {
-            val prev = segments[index - 1]
-            val prevIsLeadingDoubleStar = prev == "**" && index == 1
-            if (!prevIsLeadingDoubleStar) {
-                sb.append("\\.")
-            }
-        }
-
-        sb.append(if (seg == "*") "[^.]+" else Regex.escape(seg))
-    }
-
-    if (!hasWildcards && segments.size > 1) {
-        sb.append("(?:\\.[^.]+)*")
-    }
-
-    sb.append("$")
-    return Regex(sb.toString())
+internal fun compilePackagePattern(pattern: String): PackagePattern {
+    val segments = pattern.removeSuffix("!").split(".")
+    val implicitDescendants = !pattern.endsWith("!") && segments.size > 1 &&
+        segments.none { it == "*" || it == "**" }
+    return PackagePattern(if (implicitDescendants) segments + "**" else segments)
 }
 
 /**
- * True if there exists at least one concrete package that both [a] and [b]
- * would match at runtime.
- *
- * Two strategies, applied in order:
- * - If either side is a single-segment token (e.g. `data`), overlap reduces
- *   to "does the multi-segment side contain a segment that could match the
- *   single one?" — a literal `data`, `*`, or `**` segment.
- * - Otherwise both are multi-segment patterns. Generate a representative
- *   concrete package from each (replacing wildcards with placeholder
- *   segments) and check whether the other pattern's regex matches it. If
- *   either direction matches, the patterns overlap.
- *
- * The representative-package approach has known false negatives for unusual
- * patterns with mid-path `**` collisions, but covers all common shapes.
+ * A segment automaton shared by concrete matching and intersection checks.
+ * A literal or `*` consumes one segment and advances; `**` can advance without
+ * consuming, or consume any segment and stay at the same position.
  */
-internal fun overlap(a: TrackedPackage, b: TrackedPackage): Boolean {
-    if (a == b) return true
-    if (a.isSingleSegment) return overlapsSingleMulti(a, b)
-    if (b.isSingleSegment) return overlapsSingleMulti(b, a)
-    return overlapsMultiMulti(a, b)
-}
+internal class PackagePattern(private val segments: List<String>) {
+    /** O(m * n) time and O(m + n) working space, counting pattern/package segments. */
+    fun matches(pkg: String): Boolean {
+        val parts = pkg.split(".")
+        if (parts.any { it.isEmpty() }) return false
 
-private fun overlapsSingleMulti(single: TrackedPackage, multi: TrackedPackage): Boolean {
-    val singleSeg = single.pattern
-    val multiBody = if (multi.pattern.endsWith("!")) multi.pattern.dropLast(1) else multi.pattern
-    return multiBody.split(".").any { it == singleSeg || it == "*" || it == "**" }
-}
-
-private fun overlapsMultiMulti(a: TrackedPackage, b: TrackedPackage): Boolean {
-    val aCandidate = a.candidatePackage()
-    val bCandidate = b.candidatePackage()
-    return b.matches(aCandidate) || a.matches(bCandidate)
-}
-
-private fun TrackedPackage.candidatePackage(): String {
-    val body = if (pattern.endsWith("!")) pattern.dropLast(1) else pattern
-    return body.split(".").joinToString(".") { seg ->
-        if (seg == "*" || seg == "**") "_x_" else seg
+        var current = BooleanArray(segments.size + 1)
+        var next = BooleanArray(segments.size + 1)
+        current[0] = true
+        skipDoubleStars(current)
+        for (part in parts) {
+            next.fill(false)
+            for (i in segments.indices) {
+                if (!current[i]) continue
+                when (segments[i]) {
+                    "**" -> next[i] = true
+                    "*", part -> next[i + 1] = true
+                }
+            }
+            skipDoubleStars(next)
+            val previous = current
+            current = next
+            next = previous
+        }
+        return current.last()
     }
+
+    private fun skipDoubleStars(states: BooleanArray) {
+        for (i in segments.indices) {
+            if (states[i] && segments[i] == "**") states[i + 1] = true
+        }
+    }
+
+    /**
+     * Whether a nonempty package matches both patterns. Explore the product of
+     * their automata, visiting each position pair at most twice (before/after
+     * consuming a segment). O(m * n) time and space for pattern lengths m, n.
+     * This says nothing about containment or which tracked rule wins at runtime.
+     */
+    fun overlaps(other: PackagePattern): Boolean {
+        val pending = ArrayDeque<IntersectionState>()
+        val visited = mutableSetOf<IntersectionState>()
+        fun enqueue(left: Int, right: Int, consumed: Boolean) {
+            val state = IntersectionState(left, right, consumed)
+            if (visited.add(state)) pending.addLast(state)
+        }
+
+        enqueue(0, 0, false)
+        while (pending.isNotEmpty()) {
+            val (i, j, consumed) = pending.removeFirst()
+            if (i == segments.size && j == other.segments.size && consumed) return true
+            val left = segments.getOrNull(i)
+            val right = other.segments.getOrNull(j)
+            if (left == "**") enqueue(i + 1, j, consumed)
+            if (right == "**") enqueue(i, j + 1, consumed)
+            if (left == null || right == null) continue
+
+            if (left == right || left == "*" || left == "**" || right == "*" || right == "**") {
+                enqueue(if (left == "**") i else i + 1, if (right == "**") j else j + 1, true)
+            }
+        }
+        return false
+    }
+
+    private data class IntersectionState(val left: Int, val right: Int, val consumed: Boolean)
 }
 
 /**

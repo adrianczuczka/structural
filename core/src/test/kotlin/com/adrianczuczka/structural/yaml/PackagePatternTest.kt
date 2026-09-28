@@ -129,7 +129,10 @@ class PackagePatternTest {
     }
 
     private fun overlaps(a: String, b: String): Boolean =
-        overlap(parseTrackedPackage(a), parseTrackedPackage(b))
+        parseTrackedPackage(a).matchPattern.overlaps(parseTrackedPackage(b).matchPattern)
+
+    private fun overlapsTracked(pattern: String, tracked: String): Boolean =
+        parseTrackedPackage(pattern).matchPattern.overlaps(parseTrackedPackage(tracked).trackingPattern)
 
     @Test
     fun `overlap is reflexive`() {
@@ -168,16 +171,17 @@ class PackagePatternTest {
     }
 
     @Test
-    fun `single-segment overlaps with multi-segment containing that segment`() {
-        assertThat(overlaps("api", "com.example.api")).isTrue()
-        assertThat(overlaps("api", "com.example.api.**")).isTrue()
-        assertThat(overlaps("api", "com.example.api!")).isTrue()
+    fun `tracked single-segment overlaps with multi-segment containing that segment`() {
+        assertThat(overlapsTracked("com.example.api", "api")).isTrue()
+        assertThat(overlapsTracked("com.example.api.**", "api")).isTrue()
+        assertThat(overlapsTracked("com.example.api!", "api")).isTrue()
     }
 
     @Test
-    fun `single-segment does not overlap with multi-segment that lacks the segment`() {
-        assertThat(overlaps("data", "com.example.api")).isFalse()
-        assertThat(overlaps("data", "com.example.impl!")).isFalse()
+    fun `tracked single-segment overlaps with implicit descendants but not a disjoint exact package`() {
+        // The bare path includes com.example.api.data.
+        assertThat(overlapsTracked("com.example.api", "data")).isTrue()
+        assertThat(overlapsTracked("com.example.impl!", "data")).isFalse()
     }
 
     @Test
@@ -185,18 +189,28 @@ class PackagePatternTest {
         // `**` can match any segment, including the single-segment value, so
         // `com.example.api.**` could match a file at `com.example.api.data.foo`,
         // which is also tracked by single-segment `data`.
-        assertThat(overlaps("data", "com.example.api.**")).isTrue()
-        assertThat(overlaps("anything", "com.**.internal")).isTrue()
+        assertThat(overlapsTracked("com.example.api.**", "data")).isTrue()
+        assertThat(overlapsTracked("com.**.internal", "anything")).isTrue()
     }
 
     @Test
     fun `single-segment overlaps with multi-segment containing single-star`() {
-        assertThat(overlaps("foo", "com.*.api")).isTrue()
+        assertThat(overlapsTracked("com.*.api", "foo")).isTrue()
     }
 
     @Test
     fun `disjoint single-segment patterns do not overlap`() {
         assertThat(overlaps("data", "domain")).isFalse()
+    }
+
+    @Test
+    fun `single-segment class prefixes are literal even when tracked names are shorthand`() {
+        assertThat(overlaps("api", "com.example.api")).isFalse()
+        assertThat(overlapsTracked("api", "com.example.api")).isFalse()
+        assertThat(overlapsTracked("api", "api")).isTrue()
+        assertThat(overlapsTracked("api", "domain")).isFalse()
+        assertThat(parseTrackedPackage("api").trackingPattern.matches("com.api.child")).isTrue()
+        assertThat(parseTrackedPackage("api").matches("com.api.child")).isFalse()
     }
 
     @Test
@@ -223,8 +237,6 @@ class PackagePatternTest {
 
     @Test
     fun `overlap is symmetric across pattern shapes`() {
-        // The bidirectional candidate testing should yield the same answer
-        // regardless of argument order.
         val pairs = listOf(
             "com.example.api" to "com.example.api",
             "com.example.api" to "com.example.impl",
@@ -244,8 +256,7 @@ class PackagePatternTest {
     @Test
     fun `leading double-star overlaps with single-segment that lives at the suffix`() {
         // `**.private` matches `private`, `foo.private`, `foo.bar.private`, etc.
-        // Single-segment `private` matches any package containing a `private`
-        // segment, so they overlap on (e.g.) `foo.private`.
+        // A single-segment class prefix is literal, so these share `private`.
         assertThat(overlaps("**.private", "private")).isTrue()
         assertThat(overlaps("**.private", "com.example.private")).isTrue()
     }
@@ -253,6 +264,51 @@ class PackagePatternTest {
     @Test
     fun `leading double-star overlaps with multi-segment ending in matching suffix`() {
         assertThat(overlaps("**.private", "com.example.private")).isTrue()
-        assertThat(overlaps("**.private", "com.example.api")).isFalse()
+        // Bare com.example.api includes com.example.api.private.
+        assertThat(overlaps("**.private", "com.example.api")).isTrue()
+        assertThat(overlaps("**.private", "com.example.api!")).isFalse()
+    }
+
+    @Test
+    fun `single-star intersections do not need a representative package from either pattern`() {
+        assertThat(overlaps("com.*.api", "com.foo.*")).isTrue()
+        assertThat(overlaps("com.*.api", "org.foo.*")).isFalse()
+    }
+
+    @Test
+    fun `double-stars can consume different numbers of segments on either side`() {
+        assertThat(overlaps("com.**.api.*", "com.*.**.impl")).isTrue()
+        assertThat(overlaps("com.**.api", "com.api!")).isTrue()
+        assertThat(overlaps("com.**.api", "com.**.impl")).isFalse()
+        assertThat(overlaps("com.*.api", "com.api!")).isFalse()
+    }
+
+    @Test
+    fun `consecutive double-stars match zero or more complete segments`() {
+        assertThat(matches("**.**.api", "api", "com.api", "com.foo.api", "com.apix"))
+            .containsExactly(true, true, true, false).inOrder()
+        assertThat(matches("com.**.**.api", "com.api", "com.foo.api", "com.foo.bar.api"))
+            .containsExactly(true, true, true).inOrder()
+        assertThat(matches("**.**", "api", "com.api", "com.foo.api"))
+            .containsExactly(true, true, true).inOrder()
+        assertThat(overlaps("**.**.api", "com.api!")).isTrue()
+    }
+
+    @Test
+    fun `package matching rejects empty segments`() {
+        for (pattern in listOf("**", "**.**", "com.**", "**.api")) {
+            assertThat(matches(pattern, "", ".api", "com.", "com..api"))
+                .containsExactly(false, false, false, false)
+        }
+    }
+
+    @Test
+    fun `many recursive wildcards finish without recursive backtracking`() {
+        val prefix = List(80) { "**.a" }.joinToString(".")
+        val left = compilePackagePattern("$prefix.end")
+        val right = compilePackagePattern("$prefix.other")
+        assertThat(left.overlaps(right)).isFalse()
+        assertThat(left.matches(List(160) { "a" }.joinToString(".") + ".other")).isFalse()
+        assertThat(left.matches(List(160) { "a" }.joinToString(".") + ".end")).isTrue()
     }
 }

@@ -44,6 +44,35 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `inherited imports pass and resetting permissions restores the violation`() {
+        val config = File(testProjectDir, "structural.yml")
+        val source = File(testProjectDir, "src/main/java/dev/ionfusion/runtime/base/FusionException.java")
+        source.parentFile.mkdirs()
+        source.writeText(
+            """
+            package dev.ionfusion.runtime.base;
+            import dev.ionfusion.commons.resources.Resource;
+            import dev.ionfusion.runtime._private.util.Helper;
+            class FusionException {}
+            """.trimIndent()
+        )
+        val inherited = """
+            rules:
+              dev.ionfusion.runtime: [dev.ionfusion.commons]
+              dev.ionfusion.runtime.base:
+                allow: [dev.ionfusion.runtime._private.util]
+        """.trimIndent()
+        config.writeText(inherited)
+        fun runner() = GradleRunner.create().withProjectDir(testProjectDir)
+            .withPluginClasspath().withArguments("structuralCheck")
+        assertThat(runner().build().task(":structuralCheck")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+        config.writeText(inherited.replace("    allow:", "    inherit: false\n    allow:"))
+        val failed = runner().buildAndFail()
+        assertThat(failed.output).contains("dev.ionfusion.commons.resources")
+        assertThat(failed.output).doesNotContain("cannot import from `dev.ionfusion.runtime._private.util`")
+    }
+
+    @Test
     fun `plugin applies successfully`() {
         val result: BuildResult = GradleRunner.create()
             .withProjectDir(testProjectDir)
@@ -944,6 +973,77 @@ class StructuralPluginTest {
             .buildAndFail()
 
         assertThat(result.output).contains("`classes:` block has been renamed to `classAllowlist:`")
+    }
+
+    @Test
+    fun `broad class allowlist with exact tracked package grants necessary import without warning`() {
+        val packageRules = """
+            rules:
+              "dev.ionfusion.fusion!":
+                - dev.ionfusion.runtime.embed
+              dev.ionfusion.runtime.embed: []
+        """.trimIndent()
+        val config = File(testProjectDir, "structural.yml")
+        config.writeText(packageRules + "\n" + """
+            classAllowlist:
+              "dev.ionfusion.**":
+                - dev.ionfusion.fusion._Private_*
+        """.trimIndent())
+        File(testProjectDir, "src/main/java/dev/ionfusion/runtime/embed/FusionRuntimeBuilder.java").apply {
+            parentFile.mkdirs()
+            writeText("""
+                package dev.ionfusion.runtime.embed;
+                import dev.ionfusion.fusion._Private_Trampoline;
+                public class FusionRuntimeBuilder {}
+            """.trimIndent())
+        }
+
+        val runner = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+        val allowed = runner.build()
+        assertThat(allowed.task(":structuralCheck")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+        assertThat(allowed.output).doesNotContain("has no effect")
+
+        config.writeText(packageRules)
+        val denied = runner.buildAndFail()
+        assertThat(denied.output).contains("`dev.ionfusion.runtime.embed` cannot import from `dev.ionfusion.fusion`")
+    }
+
+    @Test
+    fun `crossed package wildcards allow necessary class imports`() {
+        val packageRules = """
+            rules:
+              com.foo.*: []
+              org.shared.*: []
+        """.trimIndent()
+        val config = File(testProjectDir, "structural.yml")
+        config.writeText(packageRules + "\n" + """
+            classAllowlist:
+              com.*.api.Client:
+                - org.*.impl.Internal
+        """.trimIndent())
+        File(testProjectDir, "src/main/java/com/foo/api/Client.java").apply {
+            parentFile.mkdirs()
+            writeText("""
+                package com.foo.api;
+                import org.shared.impl.Internal;
+                public class Client {}
+            """.trimIndent())
+        }
+
+        val runner = GradleRunner.create()
+            .withProjectDir(testProjectDir)
+            .withPluginClasspath()
+            .withArguments("structuralCheck")
+        val allowed = runner.build()
+        assertThat(allowed.task(":structuralCheck")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+        assertThat(allowed.output).doesNotContain("has no effect")
+
+        config.writeText(packageRules)
+        val denied = runner.buildAndFail()
+        assertThat(denied.output).contains("`com.foo.api` cannot import from `org.shared.impl`")
     }
 
     @Test

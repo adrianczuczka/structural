@@ -89,7 +89,7 @@ For either configuration above:
 
 Every package identifier in `rules:` becomes a tracked layer. Short names such as `data` match
 that package segment and its subpackages. Imports within a layer are allowed; imports between
-tracked layers need an explicit rule. Imports from untracked packages, including standard and
+tracked layers need a direct or inherited permission. Imports from untracked packages, including standard and
 third-party libraries, are allowed.
 
 See [configuration](docs/configuration.md) for fully qualified names, wildcards, and more rule
@@ -126,7 +126,7 @@ baseline. See [baselines](docs/baselines.md) for custom paths and shared baselin
 - [Class allowlist](docs/class-allowlist.md) — exceptions, token syntax, and limitations
 - [Sources and compatibility](docs/sources-and-compatibility.md) — source selection and Kotlin isolation
 - [Baselines](docs/baselines.md) — existing violations and multi-module aggregation
-- [Migrating from 1.x](docs/migration.md) — configuration and task changes
+- [Migration](docs/migration.md) — inherited permissions in 2.0 and Gradle configuration changes
 
 ## Examples
 

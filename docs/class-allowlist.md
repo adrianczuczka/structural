@@ -25,12 +25,13 @@ classAllowlist:
   - "com.example.api.** <- com.example.impl.**._Private_*"
 ```
 
-Every package referenced by a `classAllowlist:` entry must also appear in `rules:` — otherwise
-the rule has nothing to grant against and Structural refuses to load the config. Entries that are
-already permitted by package rules, or where both sides fall under the same tracked package, log a
-warning at task time so you can clean them up.
+Each package pattern in a `classAllowlist:` entry must overlap at least one tracked package in
+`rules:` — there must be a concrete package that matches both. For example, `com.*.api` overlaps
+`com.foo.*` because both match `com.foo.api`. Structural refuses to load the config if either side
+has no overlap. It warns about a redundant entry only when package rules already permit every
+possible tracked package combination that the entry can match.
 
-## Token grammar
+### Token grammar
 
 Each side of a class rule is a token like `com.example.api.ApiBuilder`. Structural splits it into a
 **package portion** and an optional **class portion**, working through these rules in order:
@@ -47,8 +48,11 @@ Each side of a class rule is a token like `com.example.api.ApiBuilder`. Structur
    trailing segment with `:` to force it: `com.example.api.:listOf` parses as package
    `com.example.api`, class `listOf`.
 
-The package portion uses the [package glob grammar](configuration.md#glob-patterns); the class portion supports
-shell-style globs on a single identifier:
+The package portion uses the [package glob grammar](configuration.md#glob-patterns). A single-segment class-rule
+prefix is literal: `api.Client` matches `Client` in package `api`. To match `Client` in any package
+containing an `api` segment, including its subpackages, use `**.api.**.Client`.
+
+The class portion supports shell-style globs on a single identifier:
 
 | Class pattern | Matches |
 | --- | --- |
@@ -61,7 +65,7 @@ shell-style globs on a single identifier:
 `**` is not a valid class-name pattern (class names are single identifiers); use the package
 portion's `**` for cross-subpackage matching.
 
-## Map form
+### Map form
 
 Same map form as `rules:`, with the importer as the key:
 
@@ -74,7 +78,7 @@ classAllowlist:
     - com.example.impl.**
 ```
 
-## Known limitations
+### Known limitations
 
 A few sharp edges worth knowing about up front:
 
@@ -88,9 +92,17 @@ A few sharp edges worth knowing about up front:
   `import static com.foo.Util.LOG;` is granted by a rule on `com.foo.Util`, not one on
   `com.foo.LOG`.
 - **Nested-class patterns aren't supported.** A token like `com.example.Foo.Bar` is rejected when
-  the config is parsed. A rule on `Foo` will match `import Foo.Bar` by simple name (`Bar`); reach
-  for a class glob on the imported side if you need finer control.
+  the config is parsed. For types declared in the checked sources, importing `Foo.Bar` uses the
+  declared package and the simple name `Bar` for class rules; a static import of `Foo.Bar.member`
+  also uses `Bar`. A rule on `com.example.Bar` can grant these imports, but cannot distinguish
+  nested classes with the same simple name in different enclosing types.
 - **Kotlin object members.** `import com.foo.MyObject.member` is matched by simple name
   (`member`), not against the enclosing object. Kotlin's import directive doesn't tell us whether
   `member` is an object member or a top-level declaration, so treat them the same when writing
   rules.
+- **Types outside the checked sources are not resolved.** Structural indexes top-level Java and
+  Kotlin type declarations to identify the actual package of nested-type and member imports.
+  For types available only in dependencies or other unchecked source sets, it falls back to
+  removing the final import segment (two for Java static imports). Nested imports of those types
+  can therefore still be mistaken for imports from a subpackage. The dependency classpath is
+  not analyzed.
