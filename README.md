@@ -4,8 +4,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural)](https://github.com/adrianczuczka/structural/issues)
 [![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)](https://github.com/adrianczuczka/structural/actions)
 
-A Gradle plugin for enforcing package dependency rules in Kotlin and Java. Define allowed
-imports in YAML; Structural checks your source files and fails the build when a rule is violated.
+A lightweight Gradle plugin for defining which packages can import from each other in Kotlin and Java projects. Enforce an architecture in places where Gradle modules won't work.
 
 ## Quick start
 
