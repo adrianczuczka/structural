@@ -11,6 +11,7 @@ out/
 *.iws
 
 # Gradle
+.kotlin/
 .gradle
 **/build/
 !src/**/build/

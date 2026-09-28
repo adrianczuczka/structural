@@ -90,8 +90,8 @@ same thing. So the rules above say:
 1. `data` and `ui` can import from `domain`, but not the other way around.
 2. `local` and `remote` can import from `data`, but not the other way around.
 
-If you want to track a layer that isn't allowed to import from any other tracked layer, list it as
-a bare entry — no arrow needed:
+To track a layer without adding import permissions, list it as a bare entry — no arrow needed.
+For fully-qualified nested packages, enclosing package permissions still apply:
 
 ```yaml
 rules:
@@ -112,18 +112,19 @@ rules:
     - data
   remote:
     - data
-  legacy: []         # tracked, with no allowed imports
+  legacy: []         # tracked, with no additional permissions
 ```
 
-Map values must be lists. Use `[]` for a package with no allowed imports; leaving the value
-blank is a configuration error. YAML comments start with `#`, so write
-`legacy: [] # No allowed imports`. A value such as `legacy: // No allowed imports` is a string
-and is rejected. Rule entries, package keys, and dependency list items must also be strings.
+Map values accept dependency lists or the `allow`/`inherit` object form described below.
+Use `[]` for a package with no additional permissions; leaving the value blank is a configuration
+error. YAML comments start with `#`, so write `legacy: [] # No additional permissions`.
+A value such as `legacy: // No additional permissions` is a string and is rejected.
+Arrow rule entries, package keys, and dependency list items must also be strings.
 
 Dependency targets become tracked packages throughout the project. Adding a broad target such as
 `com.example.commons.**` can expose violations in other packages that previously imported from
-untracked packages. Each importer needs its own permission to import a tracked dependency;
-declaring the dependency with `[]` only restricts the imports that dependency can make.
+untracked packages. Each importer needs a direct or inherited permission to import a tracked
+dependency. Declaring the dependency with `[]` gives it no additional import permissions of its own.
 
 If a bunch of packages share the same allowlist, YAML composite keys let you group them:
 
@@ -156,9 +157,64 @@ A bare path like `com.example.app.data` matches that path *and any of its subpac
 under `com.example.app.data.**` lives by `com.example.app.data`'s rules. When more than one tracked
 package matches a file, the longest match wins.
 
-The winning importer rule replaces the broader rule's permissions; permissions do not accumulate
-from parent packages. For example, adding a rule for `com.example.app.data.local` means that
-package uses its own allowlist, including any permissions you want to retain from `data`.
+### Inherited permissions (2.0)
+
+Package rules inherit permissions from their nearest enclosing tracked package by default.
+A child adds its own permissions to the parent's effective allowlist:
+
+```yaml
+rules:
+  dev.ionfusion.runtime:
+    - dev.ionfusion.commons
+    - dev.ionfusion.fusion
+  dev.ionfusion.runtime.base:
+    - dev.ionfusion.runtime._private.util
+```
+
+Here, `runtime.base` can import from `commons`, `fusion`, and `_private.util`.
+Inheritance is recursive and independent of declaration order. It also applies to arrow rules
+and packages tracked only because they appear as dependency targets. An empty list adds no
+permissions; it still inherits the parent's permissions.
+
+Use the object form to start a fresh allowlist:
+
+```yaml
+rules:
+  dev.ionfusion.runtime:
+    - dev.ionfusion.commons
+    - dev.ionfusion.fusion
+  dev.ionfusion.runtime.isolated:
+    inherit: false
+    allow:
+      - dev.ionfusion.commons
+```
+
+`runtime.isolated` cannot import from `fusion`. Its children inherit this restricted allowlist;
+they do not regain permissions from `runtime`. To grant no imports from other tracked layers,
+use `inherit: false` with `allow: []`. Existing permissions within the same tracked layer and
+additive `classAllowlist` exceptions still apply.
+
+The object form requires `allow` and accepts an optional boolean `inherit`, which defaults to
+`true`. It also works with composite keys. Unknown options and invalid values are errors.
+
+Inheritance follows literal package boundaries: `com.app` and `com.app.**` can be parents.
+An exact rule such as `com.app!` can inherit from `com.app`, but cannot be a parent itself.
+Other wildcard rules can inherit from an enclosing literal subtree: `com.app.*` inherits
+from `com.app`. Overlapping wildcard rules do not inherit from one another, and a literal
+child does not inherit from a general wildcard such as `com.*`. Single-segment shorthand
+rules keep their existing behavior. Where both bare and `.**` forms name the nearest parent,
+the child inherits permissions from both.
+
+#### Migrating from 1.x or 2.0.0-beta1
+
+**This changes which imports an existing configuration permits.** A nested rule that previously
+replaced a parent allowlist now extends it. Review nested rules before upgrading to 2.0.0.
+To preserve replacement behavior, convert each nested importer rule to the object form with
+`inherit: false` and put its existing dependency list under `allow`. Convert arrow rules to
+map form when you need this override. Packages mentioned only as dependency targets may also
+need an explicit entry with `inherit: false` and `allow: []` to preserve their old behavior.
+
+### Dependency targets
 
 Dependency targets are matched against the imported package itself. Allowing
 `com.example.app.domain` (or `com.example.app.domain.**`) grants access to its subpackages even

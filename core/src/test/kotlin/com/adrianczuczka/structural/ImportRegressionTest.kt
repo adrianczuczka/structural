@@ -87,13 +87,15 @@ class ImportRegressionTest {
     }
 
     @Test
-    fun `more specific importer still replaces parent permissions`() {
+    fun `explicit reset replaces parent permissions`() {
         config("""
             rules:
               dev.ionfusion.runtime:
                 - dev.ionfusion.commons
               dev.ionfusion.runtime.base:
-                - dev.ionfusion.runtime._private.util
+                inherit: false
+                allow:
+                  - dev.ionfusion.runtime._private.util
         """)
         source("java/dev/ionfusion/runtime/base/Caller.java", """
             package dev.ionfusion.runtime.base;

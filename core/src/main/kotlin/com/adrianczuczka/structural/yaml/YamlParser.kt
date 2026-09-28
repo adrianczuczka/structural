@@ -27,8 +27,12 @@ import java.io.File
  * Tracked packages are inferred from the identifiers used in `rules:`. Any
  * package that appears on either side of an arrow rule, or as a key/value in
  * the map form, is tracked. A bare identifier (no arrow) registers a package
- * as tracked with no allowed imports. Imports from packages outside the
+ * as tracked with no additional permissions. Imports from packages outside the
  * tracked set are unconditionally allowed.
+ *
+ * Nested packages inherit their nearest literal enclosing package's effective
+ * permissions by default. Map values can use {allow: [...], inherit: false}
+ * to replace inherited permissions. See [resolvePackageInheritance].
  *
  * Package tokens accept Ant-style globs on multi-segment (fully-qualified)
  * paths. See [parseTrackedPackage] for the supported grammar:
@@ -99,6 +103,7 @@ fun File.parseYamlImportRules(): StructuralData? =
             }
         }
         val allowedListPerPackage = mutableMapOf<TrackedPackage, MutableList<TrackedPackage>>()
+        val inheritance = mutableMapOf<TrackedPackage, Boolean>()
         val rawRules = data["rules"]
         val rawClassRules = data["classAllowlist"]
 
@@ -147,19 +152,15 @@ fun File.parseYamlImportRules(): StructuralData? =
                             "Invalid rules key `$key`: expected a package string or a non-empty list of package strings."
                         )
                     }
-                    if (value !is List<*>) {
-                        val commentHint = if (value is String && value.trimStart().startsWith("//")) {
-                            " YAML comments start with #, not //."
-                        } else {
-                            ""
-                        }
-                        throw GradleException(
-                            "Invalid rules value for `$key`: expected a list of package strings. " +
-                                "Use [] to track a package with no allowed imports.$commentHint"
-                        )
-                    }
+                    val (allowed, inherit) = parsePackageRuleValue(key, value)
                     keys.forEach {
-                        allowedListPerPackage.addAllowedPackages(it as String, value)
+                        val token = it as String
+                        val parsed = parseTrackedPackage(token)
+                        if (inheritance.containsKey(parsed) && inheritance[parsed] != inherit) {
+                            throw GradleException("Conflicting inherit settings for `$token`.")
+                        }
+                        inheritance[parsed] = inherit
+                        allowedListPerPackage.addAllowedPackages(token, allowed)
                     }
                 }
             }
@@ -174,17 +175,44 @@ fun File.parseYamlImportRules(): StructuralData? =
         }
 
         val classRules = parseClassRulesSection(rawClassRules)
-        val validation = validateClassRules(classRules, allowedListPerPackage)
+        val effectiveRules = resolvePackageInheritance(allowedListPerPackage, inheritance)
+        val validation = validateClassRules(classRules, effectiveRules)
 
         StructuralData(
             allowedListPerPackage.keys.toList(),
-            allowedListPerPackage,
+            effectiveRules,
             classRules,
             validation.warnings,
         )
     } else {
         null
     }
+
+private fun parsePackageRuleValue(key: Any?, value: Any?): Pair<List<*>, Boolean> {
+    if (value is List<*>) return value to true
+    if (value is Map<*, *>) {
+        val unknown = value.keys.filter { it != "allow" && it != "inherit" }
+        if (unknown.isNotEmpty()) {
+            throw GradleException("Unknown rule option for `$key`: ${unknown.joinToString()}. Supported options are allow and inherit.")
+        }
+        val allowed = value["allow"]
+        if (allowed !is List<*>) {
+            throw GradleException("Invalid allow for `$key`: expected a list of package strings; use [] for no additional permissions.")
+        }
+        val inherit = if (value.containsKey("inherit")) value["inherit"] else true
+        if (inherit !is Boolean) {
+            throw GradleException("Invalid inherit for `$key`: expected true or false.")
+        }
+        return allowed to inherit
+    }
+    val commentHint = if (value is String && value.trimStart().startsWith("//")) {
+        " YAML comments start with #, not //."
+    } else ""
+    throw GradleException(
+        "Invalid rules value for `$key`: expected a list of package strings or an object with allow and inherit. " +
+            "Use [] to track a package with no additional permissions.$commentHint"
+    )
+}
 
 private fun parseClassRulesSection(raw: Any?): List<ClassRule> {
     if (raw == null) return emptyList()

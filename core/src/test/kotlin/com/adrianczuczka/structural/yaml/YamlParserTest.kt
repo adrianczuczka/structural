@@ -16,6 +16,129 @@ class YamlParserTest {
         File(tempDir, "structural.yml").apply { writeText(content.trimIndent()) }
 
     @Test
+    fun `class rule warnings account for inherited permissions`() {
+        val data = yaml(
+            """
+            rules:
+              com.app.runtime: [com.app.commons]
+              com.app.runtime.base:
+                inherit: true
+                allow: []
+            classAllowlist:
+              com.app.runtime.base.Foo: [com.app.commons.Bar]
+            """
+        ).parseYamlImportRules()!!
+        assertThat(data.warnings).hasSize(1)
+        assertThat(data.warnings.single()).contains("no effect")
+    }
+
+    @Test
+    fun `equivalent parent spellings merge and unrelated siblings do not inherit`() {
+        val data = yaml(
+            """
+            rules:
+              com.app.runtime: [com.app.commons]
+              com.app.runtime.**: [com.app.util]
+              com.app.runtime.base: []
+              com.app.runtimeExtra: []
+            """
+        ).parseYamlImportRules()!!
+        assertThat(data.rules[TrackedPackage("com.app.runtime.base")])
+            .containsExactly(TrackedPackage("com.app.commons"), TrackedPackage("com.app.util"))
+        assertThat(data.rules[TrackedPackage("com.app.runtimeExtra")]).isEmpty()
+    }
+
+    @Test
+    fun `permissions accumulate independent of declaration order and stop at reset`() {
+        val data = yaml(
+            """
+            rules:
+              com.app.runtime.base.deep: []
+              com.app.runtime.base: [com.app.util]
+              com.app.runtime.isolated.child: []
+              com.app.runtime.isolated:
+                inherit: false
+                allow: [com.app.commons]
+              com.app.runtime: [com.app.commons, com.app.legacy]
+            """
+        ).parseYamlImportRules()!!
+        fun permissions(path: String) = data.rules.getValue(TrackedPackage(path)).map { it.pattern }
+        assertThat(permissions("com.app.runtime.base.deep"))
+            .containsExactly("com.app.commons", "com.app.legacy", "com.app.util")
+        assertThat(permissions("com.app.runtime.isolated.child")).containsExactly("com.app.commons")
+    }
+
+    @Test
+    fun `arrow rules and dependency-only packages inherit`() {
+        val data = yaml(
+            """
+            rules:
+              - com.app.runtime <- com.app.commons
+              - com.app.consumer <- com.app.runtime.base
+            """
+        ).parseYamlImportRules()!!
+        assertThat(data.rules[TrackedPackage("com.app.runtime.base")])
+            .containsExactly(TrackedPackage("com.app.commons"))
+    }
+
+    @Test
+    fun `object form supports composite keys and defaults to inheritance`() {
+        val data = yaml(
+            """
+            rules:
+              com.app.runtime: [com.app.commons]
+              ? [com.app.runtime.base, com.app.runtime.other]
+              :
+                allow: [com.app.util]
+              com.app.runtime.empty:
+                inherit: false
+                allow: []
+            """
+        ).parseYamlImportRules()!!
+        for (child in listOf("base", "other")) {
+            assertThat(data.rules[TrackedPackage("com.app.runtime.$child")])
+                .containsExactly(TrackedPackage("com.app.commons"), TrackedPackage("com.app.util"))
+        }
+        assertThat(data.rules[TrackedPackage("com.app.runtime.empty")]).isEmpty()
+    }
+
+    @Test
+    fun `exact and wildcard children inherit only enclosing literal subtrees`() {
+        val data = yaml(
+            """
+            rules:
+              com.app.runtime.**: [com.app.commons]
+              com.app.runtime!: []
+              com.app.runtime.*: []
+              com.app.runtime.base: []
+              com.app.*: [com.app.unrelated]
+              com.app.runtime.base!: [com.app.exactOnly]
+              com.app.runtime.base.deep: []
+            """
+        ).parseYamlImportRules()!!
+        for (path in listOf("com.app.runtime!", "com.app.runtime.*", "com.app.runtime.base", "com.app.runtime.base.deep")) {
+            assertThat(data.rules[TrackedPackage(path)]).containsExactly(TrackedPackage("com.app.commons"))
+        }
+    }
+
+    @Test
+    fun `invalid object options fail with actionable errors`() {
+        for ((value, message) in listOf(
+            "{allow: [], inherit: 'false'}" to "expected true or false",
+            "{allow: [], inherit: null}" to "expected true or false",
+            "{allow: [], inheritt: false}" to "Unknown rule option",
+            "{inherit: false}" to "Invalid allow",
+            "{allow: com.app.commons}" to "Invalid allow",
+            "{allow: [42]}" to "expected a package string",
+        )) {
+            val error = assertThrows<GradleException> {
+                yaml("rules:\n  com.app.runtime: $value").parseYamlImportRules()
+            }
+            assertThat(error).hasMessageThat().contains(message)
+        }
+    }
+
+    @Test
     fun `absent classes section yields empty class rule list`() {
         val data = yaml(
             """
@@ -196,8 +319,8 @@ class YamlParserTest {
     }
 
     @Test
-    fun `map rule values must be lists even alongside valid rules`() {
-        for (value in listOf("", "null", "domain", "true", "42", "{ domain: [] }")) {
+    fun `invalid scalar map rule values fail even alongside valid rules`() {
+        for (value in listOf("", "null", "domain", "true", "42")) {
             val ex = assertThrows<GradleException> {
                 yaml(
                     """
