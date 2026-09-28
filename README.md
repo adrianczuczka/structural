@@ -210,10 +210,10 @@ effective permissions, including any reset there. Its own grants are then added.
 Wildcard rules do not inherit from one another, and literal rules do not inherit from general
 wildcards. Single-segment shorthand rules keep their existing behavior.
 
-#### Migrating from 1.x or 2.0.0-beta1
+#### Migrating from 1.x or earlier 2.0 betas
 
 **This changes which imports an existing configuration permits.** A nested rule that previously
-replaced a parent allowlist now extends it. Review nested rules before upgrading to 2.0.0.
+replaced a parent allowlist now extends it. Review nested rules before upgrading to 2.0.0-beta4 or later.
 To preserve replacement behavior, convert each nested importer rule to the object form with
 `inherit: false` and put its existing dependency list under `allow`. Convert arrow rules to
 map form when you need this override. Packages mentioned only as dependency targets may also
