@@ -1,23 +1,11 @@
 # Structural
 
-### Your architecture has boundaries. Your build should enforce them.
-
 [![Maven Central](https://img.shields.io/maven-central/v/com.adrianczuczka/structural)](https://central.sonatype.com/artifact/com.adrianczuczka/structural)
 [![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural)](https://github.com/adrianczuczka/structural/issues)
 [![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)](https://github.com/adrianczuczka/structural/actions)
 
-One import is all it takes for your UI to reach into your data layer. Structural is a Gradle
-plugin that catches forbidden imports in Kotlin and Java and fails the build.
-
-```yaml
-rules:
-  - data <- domain -> ui
-```
-
-With this rule, `data` and `ui` can import from `domain`, but not from each other.
-Define your boundaries in YAML, without splitting your project into modules.
-
-[Get started](#quick-start) · [How rules work](#how-rules-work) · [Documentation](#documentation)
+A Gradle plugin for enforcing package dependency rules in Kotlin and Java. Define allowed
+imports in YAML; Structural checks your source files and fails the build when a rule is violated.
 
 ## Quick start
 
