@@ -1,10 +1,15 @@
+<div align="center">
+
 # Structural
 
-[![Maven Central](https://img.shields.io/maven-central/v/com.adrianczuczka/structural)](https://central.sonatype.com/artifact/com.adrianczuczka/structural)
-[![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural)](https://github.com/adrianczuczka/structural/issues)
-[![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)](https://github.com/adrianczuczka/structural/actions)
-
 A lightweight Gradle plugin for defining which packages can import from each other in Kotlin and Java projects. Enforce an architecture in places where Gradle modules won't work.
+
+[![Maven Central](https://img.shields.io/maven-central/v/com.adrianczuczka/structural?style=flat-square&labelColor=334155&color=2563eb)](https://central.sonatype.com/artifact/com.adrianczuczka/structural)
+[![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml?branch=master&style=flat-square&labelColor=334155&label=build)](https://github.com/adrianczuczka/structural/actions/workflows/gradle.yml)
+[![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural?style=flat-square&labelColor=334155&color=2563eb)](https://github.com/adrianczuczka/structural/issues)
+[![License](https://img.shields.io/github/license/adrianczuczka/structural?style=flat-square&labelColor=334155&color=64748b)](LICENSE)
+
+</div>
 
 ## Quick start
 
