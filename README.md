@@ -1,46 +1,38 @@
-[![Maven Central](https://img.shields.io/maven-central/v/com.adrianczuczka/structural)](https://central.sonatype.com/artifact/com.adrianczuczka/structural)
-[![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural)](https://github.com/adrianczuczka/structural/issues)
-[![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml)](https://github.com/adrianczuczka/structural/actions)
+<div align="center">
 
 # Structural
 
-![title image](images/readme_title_image.png)
+A lightweight Gradle plugin for defining which packages can import from each other in Kotlin and Java projects. Enforce an architecture in places where Gradle modules won't work.
 
-A small Gradle plugin for enforcing architectural boundaries between your packages — Clean
-Architecture, MVVM, hexagonal, or whatever convention your project follows.
+[![Maven Central](https://img.shields.io/maven-central/v/com.adrianczuczka/structural?style=flat-square&labelColor=334155&color=2563eb)](https://central.sonatype.com/artifact/com.adrianczuczka/structural)
+[![Build](https://img.shields.io/github/actions/workflow/status/adrianczuczka/structural/gradle.yml?branch=master&style=flat-square&labelColor=334155&label=build)](https://github.com/adrianczuczka/structural/actions/workflows/gradle.yml)
+[![GitHub issues](https://img.shields.io/github/issues/adrianczuczka/structural?style=flat-square&labelColor=334155&color=2563eb)](https://github.com/adrianczuczka/structural/issues)
+[![License](https://img.shields.io/github/license/adrianczuczka/structural?style=flat-square&labelColor=334155&color=64748b)](LICENSE)
 
-You write a YAML file describing which layers are allowed to import from which, and Structural
-fails the build when something crosses a line. It works on Kotlin and Java sources and doesn't
-require splitting your project into separate Gradle modules — useful when you want the boundaries
-without the ceremony, or just want to stop one package from reaching into another.
-
-Want to see it in action? The `kotlin-test-app/` and `java-test-app/` directories in this repo are
-runnable examples (with intentional violations) that you can poke at.
+</div>
 
 ## Quick start
 
-If you'd rather just see the shape of it, here's the whole thing:
+### 1. Apply the plugin
 
-```yaml
-# structural.yml in your project root
-rules:
-  - data <- domain -> ui
+Add Maven Central to plugin resolution in `settings.gradle.kts` (merge this into your existing
+`pluginManagement` block, if present):
+
+```kotlin
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
 ```
 
-```bash
-./gradlew structuralCheck
-```
+Apply Structural in the `build.gradle.kts` of the project you want to check. Replace `<latest>`
+with the version shown in the Maven Central badge above:
 
-That config says `data` and `ui` may import from `domain`, but not the other way around — and `data`
-and `ui` may not import from each other at all. Tracked packages are inferred from the rules: any
-identifier that appears in `rules:` becomes a layer Structural enforces. Anything that breaks those
-rules fails the build. The rest of this README explains the knobs.
-
-## Installation
-
-```kts
+```kotlin
 plugins {
-    id("com.adrianczuczka.structural") version "<latest>" // see the Maven Central badge above
+    id("com.adrianczuczka.structural") version "<latest>"
 }
 
 repositories {
@@ -48,445 +40,98 @@ repositories {
 }
 ```
 
-## Usage
+### 2. Define your boundaries
 
-### Configure the rules
-
-Structural reads its configuration from a YAML file. By default it looks for `structural.yml` next
-to your build file; if you'd rather keep it somewhere else, point at it explicitly:
-
-```kts
-structural {
-    config.set(file("structural.yml"))
-}
-```
-
-The whole config is a single `rules:` section: the layers you want to enforce, expressed as the
-relationships between them. Every identifier that appears in `rules:` becomes a tracked layer; any
-import from outside that set (kotlin stdlib, third-party libs, packages you don't care about) is
-unconditionally allowed.
-
-The supported top-level keys are `rules` and the optional `classAllowlist`. Keys are
-case-sensitive; unknown keys fail with a configuration error. For example, `classAllowList`
-is rejected with a suggestion to use `classAllowlist`.
-
-For most projects, naming the layers by their last segment is all you need. The arrow form reads
-naturally for short rule sets:
+Create `structural.yml` next to that project's build file:
 
 ```yaml
 rules:
   - data <- domain -> ui
-  - local <- data
-  - remote <- data
 ```
 
-A token like `data` (no dots) matches every file whose package *ends* in `.data` — for example
-`com.example.app.data` and everything beneath it. That's almost always what you want for an
-architectural rule like "nothing in `ui` may touch `data` directly."
+This allows `data` and `ui` to import from `domain`. Imports in the reverse direction, or between
+`data` and `ui`, fail the check.
 
-`A <- B` reads "`A` may be imported from `B`" (data flows from `B` into `A`); `B -> A` means the
-same thing. So the rules above say:
-
-1. `data` and `ui` can import from `domain`, but not the other way around.
-2. `local` and `remote` can import from `data`, but not the other way around.
-
-To track a layer without adding import permissions, list it as a bare entry — no arrow needed.
-For fully-qualified nested packages, enclosing package permissions still apply:
-
-```yaml
-rules:
-  - data <- domain -> ui
-  - legacy           # tracked, with no allowed imports from other layers
-```
-
-Once you have more than a handful of rules the arrow form gets noisy, and you'll probably want the
-map form. The key is the importer:
-
-```yaml
-rules:
-  ui:
-    - domain
-  data:
-    - domain
-  local:
-    - data
-  remote:
-    - data
-  legacy: []         # tracked, with no additional permissions
-```
-
-Map values accept dependency lists or the `allow`/`inherit` object form described below.
-Use `[]` for a package with no additional permissions; leaving the value blank is a configuration
-error. YAML comments start with `#`, so write `legacy: [] # No additional permissions`.
-A value such as `legacy: // No additional permissions` is a string and is rejected.
-Arrow rule entries, package keys, and dependency list items must also be strings.
-
-Dependency targets become tracked packages throughout the project. Adding a broad target such as
-`com.example.commons.**` can expose violations in other packages that previously imported from
-untracked packages. Each importer needs a direct or inherited permission to import a tracked
-dependency. Declaring the dependency with `[]` gives it no additional import permissions of its own.
-
-If a bunch of packages share the same allowlist, YAML composite keys let you group them:
-
-```yaml
-rules:
-  ? [ ui, data ]
-    :
-    - domain
-
-  ? [ local, remote ]
-    :
-    - data
-```
-
-### Fully-qualified package names
-
-The shorthand above breaks down in two situations: when two packages in your codebase share a last
-segment (say `app1.data` and `app2.data` — the shorthand can't tell them apart), or when you want
-to use wildcards (which aren't allowed on single-segment names). For either case, write the package
-out in full:
-
-```yaml
-rules:
-  - com.example.app.data <- com.example.app.domain -> com.example.app.ui
-  - com.example.app.local <- com.example.app.data
-  - com.example.app.remote <- com.example.app.data
-```
-
-A bare path like `com.example.app.data` matches that path *and any of its subpackages*, so anything
-under `com.example.app.data.**` lives by `com.example.app.data`'s rules. When more than one tracked
-package matches a file, the longest match wins.
-
-### Inherited permissions (2.0)
-
-Package rules inherit permissions from their nearest enclosing tracked package by default.
-A child adds its own permissions to the parent's effective allowlist:
-
-```yaml
-rules:
-  dev.ionfusion.runtime:
-    - dev.ionfusion.commons
-    - dev.ionfusion.fusion
-  dev.ionfusion.runtime.base:
-    - dev.ionfusion.runtime._private.util
-```
-
-Here, `runtime.base` can import from `commons`, `fusion`, and `_private.util`.
-Inheritance is recursive and independent of declaration order. It also applies to arrow rules
-and packages tracked only because they appear as dependency targets. An empty list adds no
-permissions; it still inherits the parent's permissions.
-
-Use the object form to start a fresh allowlist:
-
-```yaml
-rules:
-  dev.ionfusion.runtime:
-    - dev.ionfusion.commons
-    - dev.ionfusion.fusion
-  dev.ionfusion.runtime.isolated:
-    inherit: false
-    allow:
-      - dev.ionfusion.commons
-```
-
-`runtime.isolated` cannot import from `fusion`. Its children inherit this restricted allowlist;
-they do not regain permissions from `runtime`. To grant no imports from other tracked layers,
-use `inherit: false` with `allow: []`. Existing permissions within the same tracked layer and
-additive `classAllowlist` exceptions still apply.
-
-The object form requires `allow` and accepts an optional boolean `inherit`, which defaults to
-`true`. It also works with composite keys. Unknown options and invalid values are errors.
-
-Inheritance follows literal package boundaries. `com.app` and `com.app.**` are the same
-rule: their allowlists merge, and an explicit `inherit` setting applies to the combined rule.
-Only conflicting explicit settings are rejected. A list or an object without `inherit` leaves
-that setting unspecified; it defaults to `true` after all entries have been combined.
-
-An exact rule such as `com.app!` can inherit from `com.app`, but cannot be a parent itself.
-A wildcard rule inherits from the nearest literal package enclosing the source file's actual
-package. For example, `com.app.*.api` checking `com.app.foo.api` inherits `com.app.foo`'s
-effective permissions, including any reset there. Its own grants are then added. Setting
-`inherit: false` on the wildcard rule starts a fresh allowlist for every matching package.
-Wildcard rules do not inherit from one another, and literal rules do not inherit from general
-wildcards. Single-segment shorthand rules keep their existing behavior.
-
-#### Migrating from 1.x or 2.0.0-beta1
-
-**This changes which imports an existing configuration permits.** A nested rule that previously
-replaced a parent allowlist now extends it. Review nested rules before upgrading to 2.0.0.
-To preserve replacement behavior, convert each nested importer rule to the object form with
-`inherit: false` and put its existing dependency list under `allow`. Convert arrow rules to
-map form when you need this override. Packages mentioned only as dependency targets may also
-need an explicit entry with `inherit: false` and `allow: []` to preserve their old behavior.
-
-For example, this configuration lets application wiring import every layer:
-
-```yaml
-rules:
-  com.app: [com.app.data, com.app.domain, com.app.ui]
-```
-
-In 2.0, each target also inherits `com.app`'s permissions. This permits sibling imports such
-as `com.app.domain` importing `com.app.data`, which the same configuration previously rejected.
-To keep the wiring permissions while preserving isolation between those layers, reset them:
-
-```yaml
-rules:
-  com.app: [com.app.data, com.app.domain, com.app.ui]
-  ? [com.app.data, com.app.domain, com.app.ui]
-  :
-    inherit: false
-    allow: []
-```
-
-Add any intended inter-layer dependencies to those layers' own allowlists.
-
-### Dependency targets
-
-Dependency targets are matched against the imported package itself. Allowing
-`com.example.app.domain` (or `com.example.app.domain.**`) grants access to its subpackages even
-when those subpackages have their own rules. An exact target such as `com.example.app.domain!`
-still grants access only to that package.
-
-### Glob patterns
-
-For fully-qualified package names, Structural supports Ant-style wildcards so you don't have to
-spell out every subpackage by hand:
-
-| Pattern | Matches |
-| --- | --- |
-| `com.example.foo` | `com.example.foo` and any subpackage (the default) |
-| `com.example.foo.**` | same as above — explicit form, useful for readability |
-| `com.example.foo!` | **only** `com.example.foo`, no subpackages |
-| `com.example.*` | direct children of `com.example` only (`com.example.foo`, not `com.example.foo.bar`) |
-| `com.*.api` | any `com.X.api` where `X` is a single segment |
-| `com.**.internal` | any package under `com.` that ends in `.internal`, plus `com.internal` itself |
-| `**.private` | any package ending in `.private`, plus `private` itself |
-
-A few things worth knowing:
-
-- `*` matches exactly one package segment.
-- `**` matches zero or more.
-- A trailing `!` pins the rule to that exact package and can't be combined with wildcards.
-- Wildcards and `!` only work on dotted tokens — they're rejected on single-segment names
-  like `data`.
-- Each side of an arrow rule is parsed on its own, so `A! -> B.**` is fine.
-
-Here's the example that prompted this feature: letting everything under `dev.ionfusion.runtime`
-import from anything under `dev.ionfusion.runtime._private`.
-
-```yaml
-rules:
-  - dev.ionfusion.runtime._private -> dev.ionfusion.runtime
-```
-
-Or, if you want to lock both sides down to the exact packages and ignore subpackages entirely:
-
-```yaml
-rules:
-  - dev.ionfusion.runtime._private! -> dev.ionfusion.runtime!
-```
-
-### Class allowlist (additive)
-
-Real codebases always seem to have a few cases where one specific class needs to cross a boundary
-that the package rules don't allow — a shared exception, a builder, a handful of internals you're
-mid-refactor on. The optional `classAllowlist:` section is for those: it lets you punch a
-class-shaped hole through a package rule without weakening the package rule itself.
-
-The name says it: it's an *allowlist*, not a constraint. Entries here grant cross-package imports
-that package rules would otherwise reject; they never take away an import that package rules
-already allow. Use them sparingly, and prefer fixing the package boundary if the list starts
-growing.
-
-```yaml
-rules:
-  # bare entries — api and impl are tracked, but no cross-package imports are allowed
-  - com.example.api
-  - com.example.impl
-
-classAllowlist:
-  - "com.example.api.** <- com.example.impl.FusionException"
-  - "com.example.api.ApiBuilder <- com.example.impl.**"
-  - "com.example.api.** <- com.example.impl._Private_*"
-  - "com.example.api.** <- com.example.impl.**._Private_*"
-```
-
-Each package pattern in a `classAllowlist:` entry must overlap at least one tracked package in
-`rules:` — there must be a concrete package that matches both. For example, `com.*.api` overlaps
-`com.foo.*` because both match `com.foo.api`. Structural refuses to load the config if either side
-has no overlap. It warns about a redundant entry only when package rules already permit every
-possible tracked package combination that the entry can match.
-
-(A future release may add a deny-form counterpart — `classDenylist:` — for the inverse case where
-you want broad permission with a few carved-out denials. Open an issue if you need it.)
-
-#### Token grammar
-
-Each side of a class rule is a token like `com.example.api.ApiBuilder`. Structural splits it into a
-**package portion** and an optional **class portion**, working through these rules in order:
-
-1. Any segment containing `*` (other than the whole-segment wildcards `*` and `**`) is the class
-   name. So `com.example.impl._Private_*` parses as package `com.example.impl`, class
-   `_Private_*`.
-2. Otherwise, the first segment whose first non-underscore character is uppercase is the class
-   name. So `com.example.api.ApiBuilder` parses as package `com.example.api`, class `ApiBuilder`.
-   `_PrivateClass` counts because the first non-underscore character (`P`) is uppercase.
-3. If neither of those matches (i.e. everything is lowercase), the whole token is a package
-   pattern. `com.example.api.**` is package=`com.example.api.**`, class=any.
-4. For the rare lowercase class name (a Kotlin typealias, a DSL receiver, etc.), prefix the
-   trailing segment with `:` to force it: `com.example.api.:listOf` parses as package
-   `com.example.api`, class `listOf`.
-
-The package portion uses the [glob grammar above](#glob-patterns). A single-segment class-rule
-prefix is literal: `api.Client` matches `Client` in package `api`. To match `Client` in any package
-containing an `api` segment, including its subpackages, use `**.api.**.Client`.
-
-The class portion supports shell-style globs on a single identifier:
-
-| Class pattern | Matches |
-| --- | --- |
-| `Foo` | exact match (case-sensitive) |
-| `*Foo` | any name ending with `Foo` |
-| `Foo*` | any name starting with `Foo` |
-| `*Foo*` | any name containing `Foo` |
-| `*` | any non-empty class name |
-
-`**` is not a valid class-name pattern (class names are single identifiers); use the package
-portion's `**` for cross-subpackage matching.
-
-#### Map form
-
-Same map form as `rules:`, with the importer as the key:
-
-```yaml
-classAllowlist:
-  "com.example.api.**":
-    - com.example.impl.FusionException
-    - com.example.impl._Private_*
-  "com.example.api.ApiBuilder":
-    - com.example.impl.**
-```
-
-#### Known limitations
-
-A few sharp edges worth knowing about up front:
-
-- **The importing class's identity is its file name.** Structural is file-scoped, so a class rule
-  on `com.example.api.ApiBuilder` matches a file called `ApiBuilder.kt`. If you've got an `Api.kt`
-  that happens to *declare* `class ApiBuilder` inside it, the rule won't fire. The fix is usually
-  to name the file after the class you care about.
-- **Wildcard imports can't be granted by class rules.** `import com.foo.*` has no class name to
-  match against, so class rules can't engage and the package-level rule applies as-is.
-- **Java static imports are matched against the enclosing class.** So
-  `import static com.foo.Util.LOG;` is granted by a rule on `com.foo.Util`, not one on
-  `com.foo.LOG`.
-- **Nested-class patterns aren't supported.** A token like `com.example.Foo.Bar` is rejected when
-  the config is parsed. For types declared in the checked sources, importing `Foo.Bar` uses the
-  declared package and the simple name `Bar` for class rules; a static import of `Foo.Bar.member`
-  also uses `Bar`. A rule on `com.example.Bar` can grant these imports, but cannot distinguish
-  nested classes with the same simple name in different enclosing types.
-- **Kotlin object members.** `import com.foo.MyObject.member` is matched by simple name
-  (`member`), not against the enclosing object. Kotlin's import directive doesn't tell us whether
-  `member` is an object member or a top-level declaration, so treat them the same when writing
-  rules.
-- **Types outside the checked sources are not resolved.** Structural indexes top-level Java and
-  Kotlin type declarations to identify the actual package of nested-type and member imports.
-  For types available only in dependencies or other unchecked source sets, it falls back to
-  removing the final import segment (two for Java static imports). Nested imports of those types
-  can therefore still be mistaken for imports from a subpackage. The dependency classpath is
-  not analyzed.
-
-### Which sources are checked
-
-When a JVM plugin (`java`, `kotlin("jvm")`, …) is applied, Structural checks the `main` source
-set – including any custom `srcDir` you've registered. Without one, it falls back to scanning the
-project directory for `**/src/main/kotlin` and `**/src/main/java` layouts; that scan skips the
-build directory and any nested checkout (a directory containing a `.git` entry, such as a git
-worktree added inside the project). To take full control, set `source` explicitly – it overrides
-both:
-
-```kts
-structural {
-    source.from("src/main/kotlin", "src/generated")
-}
-```
-
-`structuralCheck` is incremental and cacheable: it only reruns when the sources, rules, or
-baseline change, and its result is shared through the build cache – including across git worktrees
-or other checkouts of the same repository.
-
-### Run the check
+### 3. Run the check
 
 ```bash
 ./gradlew structuralCheck
 ```
 
-When something's wrong, the output looks like this:
+A forbidden import produces a message like this (path shortened):
 
-![readme_example_result.png](images/readme_example_result.png)
+```text
+🚨 Import rule violations found:
+/src/main/kotlin/com/example/ui/Screen.kt:3 : `com.example.ui` cannot import from `com.example.data`
+```
 
-The task exits non-zero on violations, so it's safe to wire into CI. A common pattern is to make it
-a dependency of `check` so it runs alongside your tests:
+## How rules work
 
-```kts
+**`data <- domain` means `data` may import from `domain`.** You can express the same rule as
+`domain -> data`, or use a map with the importer as the key:
+
+```yaml
+rules:
+  data:
+    - domain
+  ui:
+    - domain
+```
+
+For either configuration above:
+
+| Importing package | Imported package | Result |
+| --- | --- | --- |
+| `com.example.ui` | `com.example.domain` | Allowed |
+| `com.example.data` | `com.example.domain` | Allowed |
+| `com.example.domain` | `com.example.data` | Forbidden |
+| `com.example.ui` | `com.example.data` | Forbidden |
+
+Every package identifier in `rules:` becomes a tracked layer. Short names such as `data` match
+that package segment and its subpackages. Imports within a layer are allowed; imports between
+tracked layers need a direct or inherited permission. Imports from untracked packages, including standard and
+third-party libraries, are allowed.
+
+See [configuration](docs/configuration.md) for fully qualified names, wildcards, and more rule
+formats, or [class allowlists](docs/class-allowlist.md) for exceptions to package boundaries.
+
+## Add it to your build
+
+Make `structuralCheck` a dependency of Gradle's `check` task to run it alongside your tests:
+
+```kotlin
 tasks.named("check") {
     dependsOn("structuralCheck")
 }
 ```
 
-### Setting a baseline
+Violations fail the task, so CI can run `./gradlew check` to enforce the same boundaries.
+Structural checks the `main` source set when a JVM plugin is applied, and supports custom source
+locations. The check is incremental and cacheable. See [sources and compatibility](docs/sources-and-compatibility.md).
 
-Adopting Structural on an existing codebase usually means a long initial list of violations.
-Rather than fixing them all up front, you can snapshot the current state as a baseline and only
-fail on *new* violations:
+## Adopt it in an existing project
+
+Snapshot existing violations so the build only fails on new ones:
 
 ```bash
 ./gradlew structuralGenerateBaseline
 ```
 
-That writes a baseline file (default: `baseline.xml` in the project directory) listing the
-existing issues, which `structuralCheck` will then ignore. Point at a different location with:
+This writes `baseline.xml` in the project directory. Commit it so the whole team uses the same
+baseline. See [baselines](docs/baselines.md) for custom paths and shared baselines across modules.
 
-```kts
-structural {
-    baseline.set(file("baseline.xml"))
-}
-```
+## Documentation
 
-Check the baseline into version control so the rest of your team gets the same behavior.
+- [Configuration](docs/configuration.md) — rule formats, package matching, and wildcards
+- [Class allowlist](docs/class-allowlist.md) — exceptions, token syntax, and limitations
+- [Sources and compatibility](docs/sources-and-compatibility.md) — source selection and Kotlin isolation
+- [Baselines](docs/baselines.md) — existing violations and multi-module aggregation
+- [Migration](docs/migration.md) — inherited permissions in 2.0 and Gradle configuration changes
 
-In a multi-module build, `structuralGenerateBaseline` is registered per module — each module
-writes its own baseline at the path it configured. That's the convention you'll recognise from
-detekt and ktlint, and it's the default if you don't think about it.
+## Examples
 
-If you want a *single* shared baseline across modules instead — every module pointing at one
-`$rootDir/baseline.xml`, say — apply the aggregation plugin to your root project:
+Explore the [Kotlin](kotlin-test-app/) and [Java](java-test-app/) sample projects and their
+[shared rules](structural/structural.yml). Both contain intentional violations to demonstrate
+what Structural catches.
 
-```kts
-plugins {
-    id("com.adrianczuczka.structural.aggregation") version "<latest>"
-}
-```
-
-Its `structuralAggregateBaseline` task collects findings from every module that applies the
-structural plugin (through dependency resolution, so it stays compatible with Gradle's Isolated
-Projects mode) and writes one file per configured path with the aggregated, deduplicated entries.
-Use it instead of `structuralGenerateBaseline` for shared-baseline workflows; using both at once
-on a shared path will race.
-
-### Migrating from 1.x
-
-- `config` and `baseline` are file properties now, not strings: replace
-  `config = "$rootDir/structural.yml"` with `config.set(file("$rootDir/structural.yml"))`.
-- `structuralAggregateBaseline` is no longer registered automatically – apply
-  `com.adrianczuczka.structural.aggregation` to the root project to get it.
-- Projects applying a JVM plugin are checked by source set now rather than by directory layout.
-  If you relied on the old directory scan (e.g. sources outside any source set), set
-  `structural { source.from(...) }` explicitly.
-
-### Compatibility
-
-Structural works on Kotlin and Java sources. The Kotlin parser runs in an isolated classloader,
-which means the plugin uses its own bundled Kotlin compiler — so it doesn't matter what Kotlin
-version your project uses (or whether you use Kotlin at all).
+[Apache 2.0 license](LICENSE)
