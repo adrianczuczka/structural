@@ -44,6 +44,35 @@ class StructuralPluginTest {
     }
 
     @Test
+    fun `inherited imports pass and resetting permissions restores the violation`() {
+        val config = File(testProjectDir, "structural.yml")
+        val source = File(testProjectDir, "src/main/java/dev/ionfusion/runtime/base/FusionException.java")
+        source.parentFile.mkdirs()
+        source.writeText(
+            """
+            package dev.ionfusion.runtime.base;
+            import dev.ionfusion.commons.resources.Resource;
+            import dev.ionfusion.runtime._private.util.Helper;
+            class FusionException {}
+            """.trimIndent()
+        )
+        val inherited = """
+            rules:
+              dev.ionfusion.runtime: [dev.ionfusion.commons]
+              dev.ionfusion.runtime.base:
+                allow: [dev.ionfusion.runtime._private.util]
+        """.trimIndent()
+        config.writeText(inherited)
+        fun runner() = GradleRunner.create().withProjectDir(testProjectDir)
+            .withPluginClasspath().withArguments("structuralCheck")
+        assertThat(runner().build().task(":structuralCheck")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+        config.writeText(inherited.replace("    allow:", "    inherit: false\n    allow:"))
+        val failed = runner().buildAndFail()
+        assertThat(failed.output).contains("dev.ionfusion.commons.resources")
+        assertThat(failed.output).doesNotContain("cannot import from `dev.ionfusion.runtime._private.util`")
+    }
+
+    @Test
     fun `plugin applies successfully`() {
         val result: BuildResult = GradleRunner.create()
             .withProjectDir(testProjectDir)
