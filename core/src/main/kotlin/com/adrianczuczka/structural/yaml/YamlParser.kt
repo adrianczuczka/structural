@@ -32,7 +32,7 @@ import java.io.File
  *
  * Nested packages inherit their nearest literal enclosing package's effective
  * permissions by default. Map values can use {allow: [...], inherit: false}
- * to replace inherited permissions. See [resolvePackageInheritance].
+ * to replace inherited permissions. See [PackagePermissions].
  *
  * Package tokens accept Ant-style globs on multi-segment (fully-qualified)
  * paths. See [parseTrackedPackage] for the supported grammar:
@@ -129,7 +129,7 @@ fun File.parseYamlImportRules(): StructuralData? =
                         )
                     }
 
-                    val parsedParts = parts.map { parseTrackedPackage(it) }
+                    val parsedParts = parts.map { parseRulePackage(it) }
                     parsedParts.forEach {
                         allowedListPerPackage.computeIfAbsent(it) { mutableListOf() }
                     }
@@ -155,11 +155,13 @@ fun File.parseYamlImportRules(): StructuralData? =
                     val (allowed, inherit) = parsePackageRuleValue(key, value)
                     keys.forEach {
                         val token = it as String
-                        val parsed = parseTrackedPackage(token)
-                        if (inheritance.containsKey(parsed) && inheritance[parsed] != inherit) {
-                            throw GradleException("Conflicting inherit settings for `$token`.")
+                        val parsed = parseRulePackage(token)
+                        if (inherit != null) {
+                            if (inheritance.containsKey(parsed) && inheritance[parsed] != inherit) {
+                                throw GradleException("Conflicting inherit settings for `$token`.")
+                            }
+                            inheritance[parsed] = inherit
                         }
-                        inheritance[parsed] = inherit
                         allowedListPerPackage.addAllowedPackages(token, allowed)
                     }
                 }
@@ -175,7 +177,8 @@ fun File.parseYamlImportRules(): StructuralData? =
         }
 
         val classRules = parseClassRulesSection(rawClassRules)
-        val effectiveRules = resolvePackageInheritance(allowedListPerPackage, inheritance)
+        val permissions = PackagePermissions(allowedListPerPackage, inheritance)
+        val effectiveRules = permissions.guaranteedRules
         val validation = validateClassRules(classRules, effectiveRules)
 
         StructuralData(
@@ -183,13 +186,14 @@ fun File.parseYamlImportRules(): StructuralData? =
             effectiveRules,
             classRules,
             validation.warnings,
+            permissions,
         )
     } else {
         null
     }
 
-private fun parsePackageRuleValue(key: Any?, value: Any?): Pair<List<*>, Boolean> {
-    if (value is List<*>) return value to true
+private fun parsePackageRuleValue(key: Any?, value: Any?): Pair<List<*>, Boolean?> {
+    if (value is List<*>) return value to null
     if (value is Map<*, *>) {
         val unknown = value.keys.filter { it != "allow" && it != "inherit" }
         if (unknown.isNotEmpty()) {
@@ -199,11 +203,11 @@ private fun parsePackageRuleValue(key: Any?, value: Any?): Pair<List<*>, Boolean
         if (allowed !is List<*>) {
             throw GradleException("Invalid allow for `$key`: expected a list of package strings; use [] for no additional permissions.")
         }
-        val inherit = if (value.containsKey("inherit")) value["inherit"] else true
-        if (inherit !is Boolean) {
+        val inherit = value["inherit"]
+        if (value.containsKey("inherit") && inherit !is Boolean) {
             throw GradleException("Invalid inherit for `$key`: expected true or false.")
         }
-        return allowed to inherit
+        return allowed to (inherit as Boolean?)
     }
     val commentHint = if (value is String && value.trimStart().startsWith("//")) {
         " YAML comments start with #, not //."
@@ -264,14 +268,14 @@ private fun MutableMap<TrackedPackage, MutableList<TrackedPackage>>.addAllowedPa
     key: String,
     value: List<*>,
 ) {
-    val parsedKey = parseTrackedPackage(key)
+    val parsedKey = parseRulePackage(key)
     val parsedValues = value.mapIndexed { index, token ->
         if (token !is String) {
             throw GradleException(
                 "Invalid rules value for `$key` at item ${index + 1}: expected a package string."
             )
         }
-        parseTrackedPackage(token)
+        parseRulePackage(token)
     }
     this[parsedKey] =
         (getOrDefault(parsedKey, emptyList()) + parsedValues)
@@ -285,4 +289,5 @@ data class StructuralData internal constructor(
     internal val rules: Map<TrackedPackage, List<TrackedPackage>>,
     internal val classRules: List<ClassRule> = emptyList(),
     internal val warnings: List<String> = emptyList(),
+    internal val permissions: PackagePermissions = PackagePermissions(rules, emptyMap()),
 )

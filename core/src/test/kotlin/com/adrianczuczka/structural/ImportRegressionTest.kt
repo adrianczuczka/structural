@@ -35,6 +35,55 @@ class ImportRegressionTest {
         .withArguments("structuralCheck")
 
     @Test
+    fun `wildcard winner inherits concrete literal parent and respects resets`() {
+        config("""
+            rules:
+              com.app: [com.shared]
+              com.app.foo: {inherit: false, allow: [com.lib]}
+              com.app.*.api: [com.extra]
+        """)
+        source("java/com/app/foo/api/Caller.java", """
+            package com.app.foo.api;
+            import com.lib.Library;
+            import com.extra.Extra;
+            class Caller {}
+        """)
+        source("java/com/app/bar/api/Caller.java", """
+            package com.app.bar.api;
+            import com.shared.Shared;
+            import com.extra.Extra;
+            class Caller {}
+        """)
+        assertThat(runner().build().output).doesNotContain("cannot import")
+        source("java/com/app/foo/api/Forbidden.java", """
+            package com.app.foo.api;
+            import com.shared.Shared;
+            class Forbidden {}
+        """)
+        val output = runner().buildAndFail().output
+        assertThat(output).contains("1 import rule violation(s)")
+        assertThat(output).contains("cannot import from `com.shared`")
+    }
+
+    @Test
+    fun `wildcard explicit reset starts fresh despite concrete parent permissions`() {
+        config("""
+            rules:
+              com.app.foo: [com.lib]
+              com.app.*.api: {inherit: false, allow: [com.extra]}
+        """)
+        source("java/com/app/foo/api/Caller.java", """
+            package com.app.foo.api;
+            import com.lib.Library;
+            import com.extra.Extra;
+            class Caller {}
+        """)
+        val output = runner().buildAndFail().output
+        assertThat(output).contains("1 import rule violation(s)")
+        assertThat(output).contains("cannot import from `com.lib`")
+    }
+
+    @Test
     fun `broad dependency permissions survive separately tracked descendants`() {
         source("java/dev/ionfusion/fusion/Caller.java", """
             package dev.ionfusion.fusion;

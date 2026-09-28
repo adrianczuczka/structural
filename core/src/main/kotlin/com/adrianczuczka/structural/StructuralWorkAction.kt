@@ -73,6 +73,7 @@ private fun checkForViolations(
         val multiSegmentMatch = multiSegmentTracked.find { it.matches(packageName) }
 
         if (multiSegmentMatch != null) {
+            val allowedList = yaml.permissions.forPackage(multiSegmentMatch, packageName)
             sourceFile.imports.forEach { import ->
                 violations.checkMultiSegmentImport(
                     file = file,
@@ -81,7 +82,7 @@ private fun checkForViolations(
                     importedPackage = sourcePackages.importedPackage(import),
                     multiSegmentMatch = multiSegmentMatch,
                     multiSegmentTracked = multiSegmentTracked,
-                    rules = rules,
+                    allowedList = allowedList,
                     classRules = classRules,
                     ignoredViolations = ignoredViolations,
                 )
@@ -118,14 +119,13 @@ private fun MutableMap<File, MutableList<ReportedViolation>>.checkMultiSegmentIm
     importedPackage: String,
     multiSegmentMatch: TrackedPackage,
     multiSegmentTracked: List<TrackedPackage>,
-    rules: Map<TrackedPackage, List<TrackedPackage>>,
+    allowedList: List<TrackedPackage>,
     classRules: List<ClassRule>,
     ignoredViolations: Map<String, List<ViolationData>>,
 ) {
     val importedTrackedPackage = multiSegmentTracked.find { it.matches(importedPackage) } ?: return
     if (importedTrackedPackage == multiSegmentMatch) return
 
-    val allowedList = rules[multiSegmentMatch] ?: emptyList()
     if (allowedList.any { it.matches(importedPackage) }) return
 
     if (isClassRuleGranted(file, packageName, import, importedPackage, classRules)) return

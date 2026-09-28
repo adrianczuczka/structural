@@ -16,6 +16,98 @@ class YamlParserTest {
         File(tempDir, "structural.yml").apply { writeText(content.trimIndent()) }
 
     @Test
+    fun `equivalent subtree spellings merge grants and preserve either explicit reset`() {
+        for (resetKey in listOf("com.app.feature", "com.app.feature.**")) {
+            val otherKey = if (resetKey.endsWith(".**")) "com.app.feature" else "com.app.feature.**"
+            for (reverse in listOf(false, true)) {
+                val entries = listOf(
+                    "$resetKey: {inherit: false, allow: [com.lib]}",
+                    "$otherKey: [com.extra]",
+                ).let { if (reverse) it.reversed() else it }.joinToString("\n")
+                val data = yaml("rules:\n  com.app: [com.shared]\n" +
+                    entries.prependIndent("  ") + "\n  com.app.feature.child: []").parseYamlImportRules()!!
+                assertThat(data.checkedPackages).doesNotContain(TrackedPackage("com.app.feature.**"))
+                for (key in listOf("com.app.feature", "com.app.feature.child")) {
+                    assertThat(data.rules[TrackedPackage(key)])
+                        .containsExactly(TrackedPackage("com.lib"), TrackedPackage("com.extra"))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `composite and object entries without inherit preserve explicit reset in either order`() {
+        for (value in listOf("[com.lib]", "{allow: [com.lib]}")) {
+            for (reverse in listOf(false, true)) {
+                val entries = listOf(
+                    "com.app.core: {inherit: false, allow: []}",
+                    "? [com.app.core, com.app.ui]\n: $value",
+                ).let { if (reverse) it.reversed() else it }.joinToString("\n")
+                val data = yaml("rules:\n  com.app: [com.shared]\n" + entries.prependIndent("  "))
+                    .parseYamlImportRules()!!
+                assertThat(data.rules[TrackedPackage("com.app.core")]).containsExactly(TrackedPackage("com.lib"))
+                assertThat(data.rules[TrackedPackage("com.app.ui")])
+                    .containsExactly(TrackedPackage("com.shared"), TrackedPackage("com.lib"))
+            }
+        }
+    }
+
+    @Test
+    fun `equivalent declarations reject only conflicting explicit inheritance settings`() {
+        for (setting in listOf(true, false)) {
+            val error = assertThrows<GradleException> {
+                yaml("""
+                    rules:
+                      com.app: {inherit: $setting, allow: []}
+                      com.app.**: {inherit: ${!setting}, allow: []}
+                """).parseYamlImportRules()
+            }
+            assertThat(error.message).contains("Conflicting inherit settings")
+        }
+        val data = yaml("""
+            rules:
+              com.app: {inherit: false, allow: [com.lib]}
+              com.app.**: {inherit: false, allow: [com.extra]}
+        """).parseYamlImportRules()!!
+        assertThat(data.rules[TrackedPackage("com.app")])
+            .containsExactly(TrackedPackage("com.lib"), TrackedPackage("com.extra"))
+    }
+
+    @Test
+    fun `arrow targets and importers use canonical subtree names without changing shorthand`() {
+        val data = yaml("""
+            rules:
+              - com.app <- com.lib.**
+              - com.app.** <- com.extra
+              - com.**
+        """).parseYamlImportRules()!!
+        assertThat(data.rules[TrackedPackage("com.app")])
+            .containsExactly(TrackedPackage("com.lib"), TrackedPackage("com.extra"))
+        assertThat(data.checkedPackages).contains(TrackedPackage("com.**"))
+        assertThat(data.checkedPackages).doesNotContain(TrackedPackage("com"))
+    }
+
+    @Test
+    fun `wildcard permissions depend on concrete package and warning analysis stays conservative`() {
+        val data = yaml("""
+            rules:
+              com.app: [com.shared]
+              com.app.foo: {inherit: false, allow: [com.lib]}
+              com.app.*.api: [com.extra]
+            classAllowlist:
+              com.app.foo.api.Caller: [com.shared.Shared]
+        """).parseYamlImportRules()!!
+        val rule = TrackedPackage("com.app.*.api")
+        repeat(2) {
+            assertThat(data.permissions.forPackage(rule, "com.app.foo.api"))
+                .containsExactly(TrackedPackage("com.lib"), TrackedPackage("com.extra"))
+            assertThat(data.permissions.forPackage(rule, "com.app.bar.api"))
+                .containsExactly(TrackedPackage("com.shared"), TrackedPackage("com.extra"))
+        }
+        assertThat(data.warnings).isEmpty()
+    }
+
+    @Test
     fun `class rule warnings account for inherited permissions`() {
         val data = yaml(
             """
@@ -117,7 +209,9 @@ class YamlParserTest {
             """
         ).parseYamlImportRules()!!
         for (path in listOf("com.app.runtime!", "com.app.runtime.*", "com.app.runtime.base", "com.app.runtime.base.deep")) {
-            assertThat(data.rules[TrackedPackage(path)]).containsExactly(TrackedPackage("com.app.commons"))
+            val concrete = path.removeSuffix("!").replace("*", "feature")
+            assertThat(data.permissions.forPackage(TrackedPackage(path), concrete))
+                .containsExactly(TrackedPackage("com.app.commons"))
         }
     }
 

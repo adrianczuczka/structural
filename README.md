@@ -197,13 +197,18 @@ additive `classAllowlist` exceptions still apply.
 The object form requires `allow` and accepts an optional boolean `inherit`, which defaults to
 `true`. It also works with composite keys. Unknown options and invalid values are errors.
 
-Inheritance follows literal package boundaries: `com.app` and `com.app.**` can be parents.
+Inheritance follows literal package boundaries. `com.app` and `com.app.**` are the same
+rule: their allowlists merge, and an explicit `inherit` setting applies to the combined rule.
+Only conflicting explicit settings are rejected. A list or an object without `inherit` leaves
+that setting unspecified; it defaults to `true` after all entries have been combined.
+
 An exact rule such as `com.app!` can inherit from `com.app`, but cannot be a parent itself.
-Other wildcard rules can inherit from an enclosing literal subtree: `com.app.*` inherits
-from `com.app`. Overlapping wildcard rules do not inherit from one another, and a literal
-child does not inherit from a general wildcard such as `com.*`. Single-segment shorthand
-rules keep their existing behavior. Where both bare and `.**` forms name the nearest parent,
-the child inherits permissions from both.
+A wildcard rule inherits from the nearest literal package enclosing the source file's actual
+package. For example, `com.app.*.api` checking `com.app.foo.api` inherits `com.app.foo`'s
+effective permissions, including any reset there. Its own grants are then added. Setting
+`inherit: false` on the wildcard rule starts a fresh allowlist for every matching package.
+Wildcard rules do not inherit from one another, and literal rules do not inherit from general
+wildcards. Single-segment shorthand rules keep their existing behavior.
 
 #### Migrating from 1.x or 2.0.0-beta1
 
@@ -213,6 +218,28 @@ To preserve replacement behavior, convert each nested importer rule to the objec
 `inherit: false` and put its existing dependency list under `allow`. Convert arrow rules to
 map form when you need this override. Packages mentioned only as dependency targets may also
 need an explicit entry with `inherit: false` and `allow: []` to preserve their old behavior.
+
+For example, this configuration lets application wiring import every layer:
+
+```yaml
+rules:
+  com.app: [com.app.data, com.app.domain, com.app.ui]
+```
+
+In 2.0, each target also inherits `com.app`'s permissions. This permits sibling imports such
+as `com.app.domain` importing `com.app.data`, which the same configuration previously rejected.
+To keep the wiring permissions while preserving isolation between those layers, reset them:
+
+```yaml
+rules:
+  com.app: [com.app.data, com.app.domain, com.app.ui]
+  ? [com.app.data, com.app.domain, com.app.ui]
+  :
+    inherit: false
+    allow: []
+```
+
+Add any intended inter-layer dependencies to those layers' own allowlists.
 
 ### Dependency targets
 
