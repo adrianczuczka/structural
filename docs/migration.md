@@ -4,10 +4,10 @@
 
 ## Inherited permissions
 
-For upgrades from 1.x or 2.0.0-beta1 to 2.0.0:
+For upgrades from 1.x or 2.0.0-beta1 through beta3 to 2.0.0-beta4 or later:
 
 **This changes which imports an existing configuration permits.** A nested rule that previously
-replaced a parent allowlist now extends it. Review nested rules before upgrading to 2.0.0.
+replaced a parent allowlist now extends it. Review nested rules before upgrading to 2.0.0-beta4 or later.
 To preserve replacement behavior, convert each nested importer rule to the object form with
 `inherit: false` and put its existing dependency list under `allow`. Convert arrow rules to
 map form when you need this override. Packages mentioned only as dependency targets may also
@@ -20,7 +20,7 @@ rules:
   com.app: [com.app.data, com.app.domain, com.app.ui]
 ```
 
-In 2.0, each target also inherits `com.app`'s permissions. This permits sibling imports such
+Starting with 2.0.0-beta4, each target also inherits `com.app`'s permissions. This permits sibling imports such
 as `com.app.domain` importing `com.app.data`, which the same configuration previously rejected.
 To keep the wiring permissions while preserving isolation between those layers, reset them:
 
